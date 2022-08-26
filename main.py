@@ -8,8 +8,7 @@ import pickle
 USE_PICKLE = True
 
 
-def undistort(mtx: np.ndarray, dist: np.ndarray):
-    img = cv.imread('old2/20220826_132012.jpg')
+def undistort(mtx: np.ndarray, dist: np.ndarray, img: np.ndarray):
     img = cv.resize(img, (img.shape[1] // 3, img.shape[0] // 3))
     h, w = img.shape[:2]
     newcameramtx, roi = cv.getOptimalNewCameraMatrix(mtx, dist, (w, h), 1, (w, h))
@@ -20,7 +19,26 @@ def undistort(mtx: np.ndarray, dist: np.ndarray):
     cv.waitKey(0)
 
 
-def calibrate(board_size: Tuple[int, int], cube_mm_size: float = 30, resize_img: bool = True):
+def get_frame_from_video(video_name: str, frame_number: int):
+    for i, frame in enumerate(generate_frames(video_name)):
+        if i == frame_number:
+            return frame
+
+
+def generate_frames(video_name: str, skip_frames: int = 4):
+    cap = cv.VideoCapture(video_name)
+    i = 0
+    while True:
+        ret, frame = cap.read()
+        if not ret:
+            break
+        if i % skip_frames == 0:
+            yield frame
+        i += 1
+    cap.release()
+
+
+def calibrate(board_size: Tuple[int, int], is_video: bool, cube_mm_size: float = 30, resize_img: bool = True):
     # termination criteria
     criteria = (cv.TERM_CRITERIA_EPS + cv.TERM_CRITERIA_MAX_ITER, cube_mm_size, 0.001)
 
@@ -31,10 +49,14 @@ def calibrate(board_size: Tuple[int, int], cube_mm_size: float = 30, resize_img:
     # Arrays to store object points and image points from all the images.
     obj_points = []  # 3d point in real world space
     img_points = []  # 2d points in image plane.
-    images = glob.glob('./calibration/*.jpg')
 
-    for image_name in images:
-        img = cv.imread(image_name)
+    if is_video:
+        videos = glob.glob('./calibration/*.mp4')
+        images = generate_frames(videos[0])
+    else:
+        images = [cv.imread(img) for img in glob.glob('./calibration/*.jpg')]
+
+    for img in images:
         if resize_img:
             img = cv.resize(img, (img.shape[1] // 3, img.shape[0] // 3))
         gray = cv.cvtColor(img, cv.COLOR_BGR2GRAY)
@@ -51,7 +73,8 @@ def calibrate(board_size: Tuple[int, int], cube_mm_size: float = 30, resize_img:
             # Draw and display the corners
             cv.drawChessboardCorners(img, (board_size[0], board_size[1]), corners2, success)
             cv.imshow('img', img)
-            cv.waitKey(0)
+            if cv.waitKey(1) & 0xFF == ord('q'):
+                break
 
     cv.destroyAllWindows()
 
@@ -61,10 +84,9 @@ def calibrate(board_size: Tuple[int, int], cube_mm_size: float = 30, resize_img:
 
 def start_calibration():
     print("Couldn't find camera_matrix.pkl")
-    ret, mtx, dist, rvecs, tvecs = calibrate(board_size=(7, 7), cube_mm_size=20, resize_img=True)
+    ret, mtx, dist, rvecs, tvecs = calibrate(board_size=(7, 7), cube_mm_size=20, is_video=True, resize_img=True)
     with open('camera_matrix.pkl', 'wb') as f:
         pickle.dump((ret, mtx, dist, rvecs, tvecs), f)
-
     return ret, mtx, dist, rvecs, tvecs
 
 
@@ -78,7 +100,7 @@ def main():
                 ret, mtx, dist, rvecs, tvecs = pickle.load(f)
         except (OSError, IOError) as e:
             ret, mtx, dist, rvecs, tvecs = start_calibration()
-    undistort(mtx, dist)
+    undistort(mtx, dist, get_frame_from_video(glob.glob('./calibration/*.mp4')[0], frame_number=50))
 
 
 if __name__ == '__main__':
