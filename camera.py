@@ -77,7 +77,7 @@ class Camera:
                 with open(self.camera_pickle_name, 'wb') as f2:
                     pickle.dump(params, f2)
 
-        if not constants.USE_PICKLE:
+        if not constants.CAMERA_CALIBRATE_PICKLE:
             set_calibration_parameters(start_calibration(), to_pickle=True)
         else:
             try:
