@@ -45,15 +45,13 @@ class LightSource:
         # get rotation matrix
         rotation_mat = np.zeros(shape=(3, 3))
         cv2.Rodrigues(self.camera.rotation_vector, rotation_mat)
-        print(rotation_mat)
-        print(self.camera.translation_vector)
 
         extrinsic_mat = cv2.hconcat([rotation_mat, self.camera.translation_vector])
         projection_matrix = self.camera.intrinsic_mat @ extrinsic_mat
 
         points_vector = np.array([[point_2d[0], point_2d[1], 1]], dtype=np.float32).T
 
-        point_3d = np.linalg.inv(self.camera.intrinsic_mat).dot(points_vector) - self.camera.translation_vector[2]
+        point_3d = np.linalg.inv(self.camera.intrinsic_mat).dot(points_vector) - self.camera.translation_vector
         point_3d = np.linalg.inv(rotation_mat).dot(point_3d)
         return projection_matrix @ np.append(point_3d, 1)
 
@@ -65,17 +63,17 @@ class LightSource:
         for b, ts in self.points:
 
             # convert image points to world points
-            b = self.image_point_to_3d(b)
-            ts = self.image_point_to_3d(ts)
+            K = self.image_point_to_3d(b)
+            TS = self.image_point_to_3d(ts)
 
             # get the top point of the pencil
-            pencil_top = (b[0], b[1] + self.pencil_len_mm, 1)
+            pencil_top = (K[0], K[1] + self.pencil_len_mm, 1)
 
             # calculate the direction from ts to pencil top
-            line_direction = np.subtract(pencil_top, ts)
+            line_direction = np.subtract(pencil_top, TS)
 
             # create a line from ts and the direction
-            lines.append(Line3D(ts, direction_ratio=line_direction))
+            lines.append(Line3D(TS, direction_ratio=line_direction))
 
         # find the intersection point of the lines and then take the average point
         intersection1 = lines[0].intersection(lines[1])
@@ -84,9 +82,7 @@ class LightSource:
         # NOTE: sympy represents number as expressions, so to get the decimal number,
         # convert to float
         light_source_pos = np.divide((intersection1 + intersection2), 2)
-
-        print("Light source position: {}".format(light_source_pos))
-
+        print(light_source_pos)
         pass
 
     def find_points(self):
@@ -98,13 +94,14 @@ class LightSource:
             self.show_pixel_selection(frame=frame, click_callback=lambda x, y: chosen_coordinates.append((x, y)))
             self.show_pixel_selection(frame=frame, click_callback=lambda x, y: chosen_coordinates.append((x, y)))
             b, ts = chosen_coordinates[0], chosen_coordinates[1]
+            print(b,ts)
             points.append((b, ts))
         return points
 
     def show_pixel_selection(self, frame: np.ndarray, click_callback):
         def on_click(event):
             if event.dblclick:
-                click_callback(event.x, event.y)
+                click_callback(event.xdata, event.ydata)
                 plt.close()
 
         fig = plt.figure()

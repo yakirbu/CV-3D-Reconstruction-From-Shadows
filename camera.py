@@ -12,12 +12,12 @@ import video_helper
 class Camera:
     def __init__(self, resize_images_by_factor=3):
         self.intrinsic_mat, self.distortion, self.rotation_vector, self.translation_vector = None, None, None, None
-        self.resize_images_by_factor = resize_images_by_factor
-        self.camera_pickle_name = 'camera_calibration.pkl'
+        self._resize_images_by_factor = resize_images_by_factor
+        self._camera_pickle_name = 'camera_calibration.pkl'
 
     def undistort(self, img: np.ndarray):
         img = cv2.resize(img,
-                         (img.shape[1] // self.resize_images_by_factor, img.shape[0] // self.resize_images_by_factor))
+                         (img.shape[1] // self._resize_images_by_factor, img.shape[0] // self._resize_images_by_factor))
         h, w = img.shape[:2]
         new_camera_mtx, roi = cv2.getOptimalNewCameraMatrix(self.intrinsic_mat, self.distortion, (w, h), 1, (w, h))
         dst = cv2.undistort(img, self.intrinsic_mat, self.distortion, None, new_camera_mtx)
@@ -42,10 +42,14 @@ class Camera:
         else:
             images = [cv2.imread(img) for img in glob.glob('camera_calibration/*.jpg')]
 
+        # counter = 0
         for img in images:
             img = cv2.resize(img, (
-                img.shape[1] // self.resize_images_by_factor, img.shape[0] // self.resize_images_by_factor))
+                img.shape[1] // self._resize_images_by_factor, img.shape[0] // self._resize_images_by_factor))
             gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
+
+            # cv2.imwrite(f'camera_calibration_images/{counter}.jpg', gray)
+            # counter += 1
 
             # Find the chess board corners
             success, corners = cv2.findChessboardCorners(gray, (board_size[0], board_size[1]), None)
@@ -64,6 +68,15 @@ class Camera:
 
         cv2.destroyAllWindows()
 
+        # u = obj_points[1][1] - obj_points[0][1]
+        # v = obj_points[2][1] - obj_points[0][1]
+        # normal = np.cross(u, v)
+        # a, b, c = normal
+        #
+        # d = np.dot(normal, obj_points[1])
+        #
+        # print('The equation is {0}x + {1}y + {2}z = {3}'.format(a, b, c, d))
+
         _, mtx, dist, rvecs, tvecs = cv2.calibrateCamera(obj_points, img_points, gray.shape[::-1], None, None)
         return mtx, dist, rvecs[2], tvecs[2]
 
@@ -74,14 +87,14 @@ class Camera:
         def set_calibration_parameters(params, to_pickle=False):
             self.intrinsic_mat, self.distortion, self.rotation_vector, self.translation_vector = params
             if to_pickle:
-                with open(self.camera_pickle_name, 'wb') as f2:
+                with open(self._camera_pickle_name, 'wb') as f2:
                     pickle.dump(params, f2)
 
         if not constants.CAMERA_CALIBRATE_PICKLE:
             set_calibration_parameters(start_calibration(), to_pickle=True)
         else:
             try:
-                with open(self.camera_pickle_name, 'rb') as f1:
+                with open(self._camera_pickle_name, 'rb') as f1:
                     print("Found camera_matrix.pkl")
                     set_calibration_parameters(pickle.load(f1))
             except (OSError, IOError):
