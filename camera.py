@@ -11,7 +11,7 @@ import video_helper
 
 class Camera:
     def __init__(self, resize_images_by_factor=3):
-        self.mtx, self.dist, self.rvecs, self.tvecs = None, None, None, None
+        self.intrinsic_mat, self.distortion, self.rotation_vector, self.translation_vector = None, None, None, None
         self.resize_images_by_factor = resize_images_by_factor
         self.camera_pickle_name = 'camera_calibration.pkl'
 
@@ -19,8 +19,8 @@ class Camera:
         img = cv2.resize(img,
                          (img.shape[1] // self.resize_images_by_factor, img.shape[0] // self.resize_images_by_factor))
         h, w = img.shape[:2]
-        new_camera_mtx, roi = cv2.getOptimalNewCameraMatrix(self.mtx, self.dist, (w, h), 1, (w, h))
-        dst = cv2.undistort(img, self.mtx, self.dist, None, new_camera_mtx)
+        new_camera_mtx, roi = cv2.getOptimalNewCameraMatrix(self.intrinsic_mat, self.distortion, (w, h), 1, (w, h))
+        dst = cv2.undistort(img, self.intrinsic_mat, self.distortion, None, new_camera_mtx)
         cv2.imshow('img', dst)
         cv2.waitKey(0)
 
@@ -65,14 +65,14 @@ class Camera:
         cv2.destroyAllWindows()
 
         _, mtx, dist, rvecs, tvecs = cv2.calibrateCamera(obj_points, img_points, gray.shape[::-1], None, None)
-        return mtx, dist, rvecs, tvecs
+        return mtx, dist, rvecs[2], tvecs[2]
 
     def calibrate(self, board_size: Tuple[int, int], is_video: bool, cube_mm_size: float):
         def start_calibration():
             return self.calibrate_helper(board_size, is_video, cube_mm_size)
 
         def set_calibration_parameters(params, to_pickle=False):
-            self.mtx, self.dist, self.rvecs, self.tvecs = params
+            self.intrinsic_mat, self.distortion, self.rotation_vector, self.translation_vector = params
             if to_pickle:
                 with open(self.camera_pickle_name, 'wb') as f2:
                     pickle.dump(params, f2)

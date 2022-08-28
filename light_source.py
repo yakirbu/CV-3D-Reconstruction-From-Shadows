@@ -1,9 +1,11 @@
 import glob
 import pickle
+from typing import List
 
-import matplotlib.figure
+import cv2
 import matplotlib.pyplot as plt
 import numpy as np
+from sympy import Line3D, Point3D
 
 import constants
 import video_helper
@@ -38,6 +40,55 @@ class LightSource:
             except (OSError, IOError):
                 set_calibration_parameters(locate_points(), to_pickle=True)
 
+    def image_point_to_3d(self, point_2d):
+
+        # get rotation matrix
+        rotation_mat = np.zeros(shape=(3, 3))
+        cv2.Rodrigues(self.camera.rotation_vector, rotation_mat)
+        print(rotation_mat)
+        print(self.camera.translation_vector)
+
+        extrinsic_mat = cv2.hconcat([rotation_mat, self.camera.translation_vector])
+        projection_matrix = self.camera.intrinsic_mat @ extrinsic_mat
+
+        points_vector = np.array([[point_2d[0], point_2d[1], 1]], dtype=np.float32).T
+
+        point_3d = np.linalg.inv(self.camera.intrinsic_mat).dot(points_vector) - self.camera.translation_vector[2]
+        point_3d = np.linalg.inv(rotation_mat).dot(point_3d)
+        return projection_matrix @ np.append(point_3d, 1)
+
+    def calibrate_helper(self):
+
+        # TODO: FIRST DO UNDISTORTION? (or not)
+
+        lines: List[Line3D] = []
+        for b, ts in self.points:
+
+            # convert image points to world points
+            b = self.image_point_to_3d(b)
+            ts = self.image_point_to_3d(ts)
+
+            # get the top point of the pencil
+            pencil_top = (b[0], b[1] + self.pencil_len_mm, 1)
+
+            # calculate the direction from ts to pencil top
+            line_direction = np.subtract(pencil_top, ts)
+
+            # create a line from ts and the direction
+            lines.append(Line3D(ts, direction_ratio=line_direction))
+
+        # find the intersection point of the lines and then take the average point
+        intersection1 = lines[0].intersection(lines[1])
+        intersection2 = lines[0].intersection(lines[2])
+
+        # NOTE: sympy represents number as expressions, so to get the decimal number,
+        # convert to float
+        light_source_pos = np.divide((intersection1 + intersection2), 2)
+
+        print("Light source position: {}".format(light_source_pos))
+
+        pass
+
     def find_points(self):
         videos = glob.glob('light_calibration/*.mp4')
         points = []
@@ -49,23 +100,6 @@ class LightSource:
             b, ts = chosen_coordinates[0], chosen_coordinates[1]
             points.append((b, ts))
         return points
-
-    def calculate_XYZ(self, u, v):
-        ## MAYBE USE THE REAL WORLD POINTS TO CALCULATE THE PLANE OF THE DESK
-
-        # Solve: From Image Pixels, find World Points
-        uv_1 = np.array([[u, v, 1]], dtype=np.float32)
-        uv_1 = uv_1.T
-        suv_1 = self.scalingfactor * uv_1
-        xyz_c = self.inverse_newcam_mtx.dot(suv_1)
-        xyz_c = xyz_c - self.tvec1
-        XYZ = self.inverse_R_mtx.dot(xyz_c)
-        return XYZ
-
-    def calibrate_helper(self):
-        # TODO: FIRST DO UNDISTORTION
-        #print(self.points)
-        pass
 
     def show_pixel_selection(self, frame: np.ndarray, click_callback):
         def on_click(event):
