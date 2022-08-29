@@ -73,7 +73,7 @@ class LightSource:
 
         return P.reshape(-1)
 
-    def calibrate_helper(self, height_of_lamp=900):
+    def calibrate_helper(self, height_of_lamp=1600):
 
         # TODO: FIRST DO UNDISTORTION? (or not)
 
@@ -112,7 +112,7 @@ class LightSource:
                 x, y, z = [K[0], T[0]], [K[1], T[1]], [K[2], T[2]]
                 ax.plot(x, y, z, color='y')
 
-                t = 8  # length of the line
+                t = height_of_lamp/100  # length of the line
                 line_direction = np.subtract(T, TS)
                 T_TS_Line = TS + (t * line_direction)  # T-TS line
 
