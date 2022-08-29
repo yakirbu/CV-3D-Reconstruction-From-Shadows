@@ -16,8 +16,8 @@ class Camera:
         self._camera_pickle_name = 'camera_calibration.pkl'
 
     def undistort(self, img: np.ndarray):
-        img = cv2.resize(img,
-                         (img.shape[1] // self._resize_images_by_factor, img.shape[0] // self._resize_images_by_factor))
+        # img = cv2.resize(img,
+        #                  (img.shape[1] // self._resize_images_by_factor, img.shape[0] // self._resize_images_by_factor))
         h, w = img.shape[:2]
         new_camera_mtx, roi = cv2.getOptimalNewCameraMatrix(self.intrinsic_mat, self.distortion, (w, h), 1, (w, h))
         dst = cv2.undistort(img, self.intrinsic_mat, self.distortion, None, new_camera_mtx)
@@ -42,14 +42,15 @@ class Camera:
         else:
             images = [cv2.imread(img) for img in glob.glob('camera_calibration/*.jpg')]
 
-        # counter = 0
+        counter = 0
         for img in images:
             img = cv2.resize(img, (
                 img.shape[1] // self._resize_images_by_factor, img.shape[0] // self._resize_images_by_factor))
-            gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
 
-            # cv2.imwrite(f'camera_calibration_images/{counter}.jpg', gray)
-            # counter += 1
+            cv2.imwrite(f'camera_calibration_images/{counter}.jpg', img)
+            counter += 1
+
+            gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
 
             # Find the chess board corners
             success, corners = cv2.findChessboardCorners(gray, (board_size[0], board_size[1]), None)
@@ -68,17 +69,20 @@ class Camera:
 
         cv2.destroyAllWindows()
 
-        # u = obj_points[1][1] - obj_points[0][1]
-        # v = obj_points[2][1] - obj_points[0][1]
+
+        # a = obj_points[0][0]
+        # b = obj_points[0][1]
+        # c = obj_points[0][10]
+        #
+        # u = b - a
+        # v = c - a
         # normal = np.cross(u, v)
         # a, b, c = normal
-        #
-        # d = np.dot(normal, obj_points[1])
-        #
+        # d = np.dot(normal, a)
         # print('The equation is {0}x + {1}y + {2}z = {3}'.format(a, b, c, d))
 
         _, mtx, dist, rvecs, tvecs = cv2.calibrateCamera(obj_points, img_points, gray.shape[::-1], None, None)
-        return mtx, dist, rvecs[2], tvecs[2]
+        return mtx, dist, rvecs[-1], tvecs[-1]
 
     def calibrate(self, board_size: Tuple[int, int], is_video: bool, cube_mm_size: float):
         def start_calibration():
