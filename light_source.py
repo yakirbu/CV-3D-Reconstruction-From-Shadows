@@ -20,6 +20,7 @@ class LightSource:
         self.pencil_len_mm = None
         self.light_pickle_name = 'light_calibration.pkl'
         self.points = []
+        self.light_position = None
 
     def calibrate(self, pencil_len_mm):
         def locate_points():
@@ -45,42 +46,7 @@ class LightSource:
             except (OSError, IOError):
                 set_calibration_parameters(locate_points(), to_pickle=True)
 
-    # def image_point_to_3d(self, point_2d):
-    #
-    #     # get rotation matrix
-    #     # rotation_mat = np.zeros(shape=(3, 3))
-    #     # cv2.Rodrigues(self.camera.rotation_vector, rotation_mat)
-    #     # points_vector = np.array([[point_2d[0], point_2d[1], 1]], dtype=np.float32)
-    #     # R_inv = np.linalg.inv(rotation_mat)
-    #     # A_inv = np.linalg.inv(self.camera.intrinsic_mat)
-    #     # uv_1 = points_vector
-    #     # uv_1 = uv_1.T
-    #     # suv_1 = 1 * uv_1
-    #     # xyz_c = A_inv.dot(suv_1)
-    #     # xyz_c = xyz_c - self.camera.translation_vector
-    #     # point_3d = R_inv.dot(xyz_c)
-    #
-    #     rotation_mat = np.zeros(shape=(3, 3))
-    #     cv2.Rodrigues(self.camera.rotation_vector, rotation_mat)
-    #
-    #     cam_center = -np.linalg.inv(rotation_mat.conj().T) @ self.camera.translation_vector.conj().T
-    #
-    #     extrinsic_mat = cv2.hconcat([rotation_mat, self.camera.translation_vector])
-    #     projection_matrix = self.camera.intrinsic_mat @ extrinsic_mat
-    #
-    #     points_vector = np.array([[point_2d[0], point_2d[1], 1]], dtype=np.float32).T
-    #
-    #     point_3d = np.linalg.inv(self.camera.intrinsic_mat).dot(points_vector) - self.camera.translation_vector[2]
-    #     point_3d = np.linalg.inv(rotation_mat).dot(point_3d)
-    #
-    #     # extrinsic_mat = cv2.hconcat([rotation_mat, self.camera.translation_vector])
-    #     # projection_matrix = self.camera.intrinsic_mat @ extrinsic_mat
-    #
-    #     point_3d[2] = 0
-    #     return point_3d.reshape(-1)
-
     def image_point_to_3d(self, point_2d):
-
         # We assume that Z is 0, because our desk is at XY plane
         z_const = 0
 
@@ -107,7 +73,7 @@ class LightSource:
 
         return P.reshape(-1)
 
-    def calibrate_helper(self):
+    def calibrate_helper(self, height_of_lamp=900):
 
         # TODO: FIRST DO UNDISTORTION? (or not)
 
@@ -116,74 +82,75 @@ class LightSource:
         ax.set_xlabel("X")
         ax.set_ylabel("Y")
         ax.set_zlabel("Z")
-        ax.set_zlim(0, 250)
+        ax.set_zlim(0, height_of_lamp)
 
-        lines: List[Line3D] = []
+        T_points = []
+        TS_points = []
+
         for b, ts in self.points:
             # convert image points to world points
             K = self.image_point_to_3d(b)
             TS = self.image_point_to_3d(ts)
 
-            print(K)
-            print(TS)
-
             # get the top point of the pencil
             T = (K[0], K[1], K[2] + self.pencil_len_mm)
 
-            # calculate the direction from ts to pencil top
-            line_direction = np.subtract(T, TS)
+            T_points.append(T)
+            TS_points.append(TS)
 
-            # create a line from ts and the direction
-            #lines.append(Line3D(TS, direction_ratio=line_direction))
-            lines.append(Line3D(Point3D(TS), Point3D(T)))
+            if constants.LIGHT_CALIBRATE_GRAPHS:
+                # --- PLOTS ---
+                ax.scatter(K[0], K[1], K[2], facecolors='none', edgecolors='r')  # plot the point K on the figure
+                ax.scatter(TS[0], TS[1], TS[2], facecolors='none', edgecolors='b')  # plot the point K on the figure
+                ax.scatter(T[0], T[1], T[2], facecolors='none', edgecolors='y')  # plot the point K on the figure
 
+                # plot the line between K and TS
+                x, y, z = [K[0], TS[0]], [K[1], TS[1]], [K[2], TS[2]]
+                ax.plot(x, y, z, color='g')
 
-            # --- PLOTS ---
-            ax.scatter(K[0], K[1], K[2], facecolors='none', edgecolors='r')  # plot the point K on the figure
-            ax.scatter(TS[0], TS[1], TS[2], facecolors='none', edgecolors='b')  # plot the point K on the figure
-            ax.scatter(T[0], T[1], T[2], facecolors='none', edgecolors='y')  # plot the point K on the figure
+                # plot the line between K and T
+                x, y, z = [K[0], T[0]], [K[1], T[1]], [K[2], T[2]]
+                ax.plot(x, y, z, color='y')
 
-            # plot the line between K and TS
-            x, y, z = [K[0], TS[0]], [K[1], TS[1]], [K[2], TS[2]]
-            ax.plot(x, y, z, color='g')
+                t = 8  # length of the line
+                line_direction = np.subtract(T, TS)
+                T_TS_Line = TS + (t * line_direction)  # T-TS line
 
-            # plot the line between K and T
-            x, y, z = [K[0], T[0]], [K[1], T[1]], [K[2], T[2]]
-            ax.plot(x, y, z, color='y')
+                x = [TS[0], T[0], T_TS_Line[0]]
+                y = [TS[1], T[1], T_TS_Line[1]]
+                z = [TS[2], T[2], T_TS_Line[2]]
+                # Plotting the line
+                plt.plot(x, y, z, 'r', linewidth=2)
 
-            t = 3  # length of the line
-            T_TS_Line = TS + (t * line_direction)  # T-TS line
+        # Reshape points
+        TS_points, T_points = np.array(TS_points).reshape((-1, 3)), np.array(T_points).reshape((-1, 3))
+        intersection_point = LightSource.find_closet_intersection_point(T_points, TS_points)
 
-            x = [TS[0], T[0], T_TS_Line[0]]
-            y = [TS[1], T[1], T_TS_Line[1]]
-            z = [TS[2], T[2], T_TS_Line[2]]
-            # Plotting the line
-            plt.plot(x, y, z, 'r', linewidth=2)
+        if constants.LIGHT_CALIBRATE_GRAPHS:
+            # Add the point to the graph
+            ax.scatter(intersection_point[0], intersection_point[1], intersection_point[2], facecolors='none', edgecolors='y')
+            plt.show()
 
-        plt.show()
+        self.light_position = intersection_point
 
-        # find the intersection point of the lines and then take the average point
-        intersection1 = lines[0].intersection(lines[1])
-        intersection2 = lines[0].intersection(lines[2])
-
-        if intersection1 or intersection2:
-            print("There is an intersection!")
-
-        if not intersection1:
-            print("No intersection_1 found => EXIT")
-            return
-        if not intersection2:
-            print("No intersection_2 found => EXIT")
-            return
-
-        # NOTE: sympy represents number as expressions, so to get the decimal number,
-        # convert to float
-
-        a = [intersection1[0].x, intersection1[0].y, intersection1[0].z]
-        b = [intersection2[0].x, intersection2[0].y, intersection2[0].z]
-        light_source_pos = np.average([a, b], axis=0)
-        print(light_source_pos)
-        pass
+    @staticmethod
+    def find_closet_intersection_point(points_1, points_2):
+        """
+        Find the closest intersection point between multiple lines
+        :param points_1:
+        :param points_2:
+        :return:
+        """
+        # generate all line direction vectors
+        n = (points_1 - points_2) / np.linalg.norm(points_1 - points_2, axis=1)[:, np.newaxis]  # normalized
+        # generate the array of all projectors
+        projs = np.eye(n.shape[1]) - n[:, :, np.newaxis] * n[:, np.newaxis]  # I - n*n.T
+        # generate R matrix and q vector
+        R = projs.sum(axis=0)
+        q = (projs @ points_2[:, :, np.newaxis]).sum(axis=0)
+        # solve the least squares problem for the intersection point p: Rp = q
+        p = np.linalg.lstsq(R, q, rcond=None)[0]
+        return p.reshape(-1)
 
     def find_points(self):
         videos = glob.glob('light_calibration/*.mp4')
