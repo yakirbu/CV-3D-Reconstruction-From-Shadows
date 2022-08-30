@@ -1,18 +1,10 @@
 import glob
 import pickle
-from typing import List
-
 import cv2
-import numpy
 import numpy as np
-from sympy import Line3D, Point3D
-
 import constants
 import video_helper
-
 import matplotlib.pyplot as plt
-from mpl_toolkits.mplot3d import Axes3D
-
 
 class LightSource:
     def __init__(self, camera):
@@ -46,34 +38,7 @@ class LightSource:
             except (OSError, IOError):
                 set_calibration_parameters(locate_points(), to_pickle=True)
 
-    def image_point_to_3d(self, point_2d):
-        # We assume that Z is 0, because our desk is at XY plane
-        z_const = 0
-
-        # Transform 2d points to homogeneous coordinates
-        point_2d = np.array([[point_2d[0], point_2d[1], 1]], dtype=np.float32).T
-
-        # Get rotation matrix
-        rotation_mat = np.zeros(shape=(3, 3))
-        cv2.Rodrigues(self.camera.rotation_vector, rotation_mat)
-        rotation_mat_inv = np.linalg.inv(rotation_mat)
-
-        # Get translation vector
-        translation_vector, intrinsic_matrix = self.camera.translation_vector.reshape(3, 1), self.camera.intrinsic_mat
-        intrinsic_matrix_inv = np.linalg.inv(intrinsic_matrix)
-
-        mat_left_side = rotation_mat_inv @ intrinsic_matrix_inv @ point_2d
-        mat_right_side = rotation_mat_inv @ translation_vector
-
-        # Find s:
-        s = ((z_const + mat_right_side[2]) / mat_left_side[2])[0]
-
-        # Calculate 3d points:
-        P = (s * mat_left_side) - mat_right_side
-
-        return P.reshape(-1)
-
-    def calibrate_helper(self, height_of_lamp=900):
+    def calibrate_helper(self, height_of_lamp=800):
 
         # TODO: FIRST DO UNDISTORTION? (or not)
 
@@ -89,8 +54,8 @@ class LightSource:
 
         for b, ts in self.points:
             # convert image points to world points
-            K = self.image_point_to_3d(b)
-            TS = self.image_point_to_3d(ts)
+            K = self.camera.image_point_to_3d(b)
+            TS = self.camera.image_point_to_3d(ts)
 
             # get the top point of the pencil
             T = (K[0], K[1], K[2] + self.pencil_len_mm)
@@ -112,7 +77,7 @@ class LightSource:
                 x, y, z = [K[0], T[0]], [K[1], T[1]], [K[2], T[2]]
                 ax.plot(x, y, z, color='y')
 
-                t = 8  # length of the line
+                t = height_of_lamp/100  # length of the line
                 line_direction = np.subtract(T, TS)
                 T_TS_Line = TS + (t * line_direction)  # T-TS line
 
@@ -161,20 +126,16 @@ class LightSource:
             cv2.imwrite(f"./light_calibration_images/{count}.jpg", frame)
             count += 1
             chosen_coordinates = []
-            self.show_pixel_selection(frame=frame, click_callback=lambda x, y: chosen_coordinates.append((x, y)))
-            self.show_pixel_selection(frame=frame, click_callback=lambda x, y: chosen_coordinates.append((x, y)))
+            video_helper.show_pixel_selection(camera=self.camera,
+                                              frame=frame,
+                                              click_callback=lambda x, y: chosen_coordinates.append((x, y)),
+                                              title="Select the bottom point of the pencil")
+            video_helper.show_pixel_selection(camera=self.camera,
+                                              frame=frame,
+                                              click_callback=lambda x, y: chosen_coordinates.append((x, y)),
+                                              title="Select top point of the shadow")
             b, ts = chosen_coordinates[0], chosen_coordinates[1]
             print(b, ts)
             points.append((b, ts))
         return points
 
-    def show_pixel_selection(self, frame: np.ndarray, click_callback):
-        def on_click(event):
-            if event.dblclick:
-                click_callback(event.xdata, event.ydata)
-                plt.close()
-
-        fig = plt.figure()
-        fig.canvas.mpl_connect('button_press_event', on_click)
-        plt.imshow(frame)
-        plt.show()

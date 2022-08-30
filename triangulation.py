@@ -1,0 +1,2 @@
+class Triangulation:
+    pass
