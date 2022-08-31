@@ -4,16 +4,17 @@ from typing import Tuple
 
 import numpy as np
 import cv2
+from matplotlib import pyplot as plt
 
 import constants
 import video_helper
 
 
 class Camera:
-    def __init__(self, resize_images_by_factor=3):
+    def __init__(self):
         self.intrinsic_mat, self.distortion, self.rotation_vector, self.translation_vector = None, None, None, None
-        self._resize_images_by_factor = resize_images_by_factor
         self._camera_pickle_name = 'camera_calibration.pkl'
+        self.graph = None
 
     def undistort(self, img: np.ndarray):
         h, w = img.shape[:2]
@@ -38,13 +39,10 @@ class Camera:
             videos = glob.glob('camera_calibration/*.mp4')
             images = video_helper.generate_frames(videos[0])
         else:
-            images = [cv2.imread(img) for img in glob.glob('camera_calibration/*.jpg')]
+            images = video_helper.get_images('./camera_calibration')
 
         counter = 0
         for img in images:
-            img = cv2.resize(img, (
-                img.shape[1] // self._resize_images_by_factor, img.shape[0] // self._resize_images_by_factor))
-
             cv2.imwrite(f'camera_calibration_images/{counter}.jpg', img)
             counter += 1
 
@@ -64,20 +62,41 @@ class Camera:
                 cv2.imshow('img', img)
                 # if cv2.waitKey(1) & 0xFF == ord('q'):
                 #     break
-                cv2.waitKey()
+
+                # cv2.waitKey()
 
         cv2.destroyAllWindows()
 
-        _, mtx, dist, rvecs, tvecs = cv2.calibrateCamera(obj_points, img_points, gray.shape[::-1], None, None)
+        ret, mtx, dist, rvecs, tvecs = cv2.calibrateCamera(obj_points, img_points, gray.shape[::-1], None, None)
 
+        min_err_ind = self.evaluate_calibration(obj_points, img_points, rvecs, tvecs, mtx, dist)
+
+        return mtx, dist, rvecs[min_err_ind], tvecs[min_err_ind]
+
+    def evaluate_calibration(self, obj_points, img_points, rvecs, tvecs, mtx, dist):
         # Print the camera calibration error
         error = 0
+        min_err = 1000
+        min_err_ind = -1
         for i in range(len(obj_points)):
             imgPoints2, _ = cv2.projectPoints(obj_points[i], rvecs[i], tvecs[i], mtx, dist)
-            error += cv2.norm(img_points[i], imgPoints2, cv2.NORM_L2) / len(imgPoints2)
+            curr_error = cv2.norm(img_points[i], imgPoints2, cv2.NORM_L2) / len(imgPoints2)
+            error += curr_error
+            if curr_error < min_err:
+                min_err = curr_error
+                min_err_ind = i
+            print(curr_error)
         print("Total error: ", error / len(obj_points))
 
-        return mtx, dist, rvecs[-1], tvecs[-1]
+        # Change min_err_ind to -1 if you want to use the last calibration
+        min_err_ind = -1
+
+        self.create_3d_graph()
+        for p in obj_points[min_err_ind]:
+            self.add_graph_point(p, 'b')
+
+        return min_err_ind
+
 
     def calibrate(self, board_size: Tuple[int, int], is_video: bool, cube_mm_size: float):
         def start_calibration():
@@ -99,6 +118,18 @@ class Camera:
             except (OSError, IOError):
                 set_calibration_parameters(start_calibration(), to_pickle=True)
 
+
+    def calculate_camera_center(self):
+        # Set camera center:
+        cam_center = -(np.linalg.inv(self.get_rotation_matrix()) @ self.translation_vector)
+        self.add_graph_point(cam_center, color='g')  # plot the camera center on the figure
+
+    def get_rotation_matrix(self):
+        return cv2.Rodrigues(self.rotation_vector)[0]
+        # rotation_mat = np.zeros(shape=(3, 3))
+        # cv2.Rodrigues(self.rotation_vector, rotation_mat)
+        # return rotation_mat
+
     def image_point_to_3d(self, point_2d):
         # We assume that Z is 0, because our desk is at XY plane
         z_const = 0
@@ -107,8 +138,7 @@ class Camera:
         point_2d = np.array([[point_2d[0], point_2d[1], 1]], dtype=np.float32).T
 
         # Get rotation matrix
-        rotation_mat = np.zeros(shape=(3, 3))
-        cv2.Rodrigues(self.rotation_vector, rotation_mat)
+        rotation_mat = self.get_rotation_matrix()
         rotation_mat_inv = np.linalg.inv(rotation_mat)
 
         # Get translation vector
@@ -150,31 +180,18 @@ class Camera:
     #
     #     return P.reshape(-1)
 
-    # def image_point_to_3d(self, point_2d):
-    #     # We assume that Z is 0, because our desk is at XY plane
-    #     z_const = 0
-    #
-    #     # Transform 2d points to homogeneous coordinates
-    #     point_2d = np.array([[point_2d[0], point_2d[1], 1]], dtype=np.float32).T
-    #
-    #     # Get rotation matrix
-    #     rotation_mat = np.zeros(shape=(3, 3))
-    #     cv2.Rodrigues(self.rotation_vector, rotation_mat)
-    #     rotation_mat_inv = np.linalg.inv(rotation_mat)
-    #
-    #     # Get translation vector
-    #     translation_vector, intrinsic_matrix = self.translation_vector.reshape(3, 1), self.intrinsic_mat
-    #     intrinsic_matrix_inv = np.linalg.inv(intrinsic_matrix)
-    #
-    #     F = rotation_mat_inv @ intrinsic_matrix_inv @ point_2d
-    #     P = rotation_mat_inv @ translation_vector
-    #
-    #     s = (1 + P[0][2]) / F[0][2]
-    #
-    #
-    #
-    #     s = (z_const + P[2][0]) / K[2][0]
-    #
-    #     P = s * (K - invR_tvec)
-    #
-    #     return P.reshape(-1)
+    def create_3d_graph(self):
+        plt.clf()
+        fig = plt.figure(figsize=(4, 4))
+        ax = fig.add_subplot(111, projection='3d')
+        ax.set_xlabel("X")
+        ax.set_ylabel("Y")
+        ax.set_zlabel("Z")
+        ax.set_zlim(0, 1000)
+        self.graph = ax
+
+    def add_graph_point(self, point_3d, color="y", full=False):
+        if full:
+            self.graph.scatter(point_3d[0], point_3d[1], point_3d[2], c=color)
+        else:
+            self.graph.scatter(point_3d[0], point_3d[1], point_3d[2], facecolors='none', edgecolors=color)
