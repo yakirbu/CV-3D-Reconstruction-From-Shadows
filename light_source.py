@@ -42,12 +42,12 @@ class LightSource:
 
         # TODO: FIRST DO UNDISTORTION? (or not)
 
-        fig = plt.figure(figsize=(4, 4))
-        ax = fig.add_subplot(111, projection='3d')
-        ax.set_xlabel("X")
-        ax.set_ylabel("Y")
-        ax.set_zlabel("Z")
-        ax.set_zlim(0, height_of_lamp)
+        # fig = plt.figure(figsize=(4, 4))
+        # ax = fig.add_subplot(111, projection='3d')
+        # ax.set_xlabel("X")
+        # ax.set_ylabel("Y")
+        # ax.set_zlabel("Z")
+        # ax.set_zlim(0, height_of_lamp)
 
         T_points = []
         TS_points = []
@@ -57,6 +57,8 @@ class LightSource:
             K = self.camera.image_point_to_3d(b)
             TS = self.camera.image_point_to_3d(ts)
 
+            print(f"Calculating for points: b={b}, ts={ts}")
+
             # get the top point of the pencil
             T = (K[0], K[1], K[2] + self.pencil_len_mm)
 
@@ -65,17 +67,17 @@ class LightSource:
 
             if constants.LIGHT_CALIBRATE_GRAPHS:
                 # --- PLOTS ---
-                ax.scatter(K[0], K[1], K[2], facecolors='none', edgecolors='r')  # plot the point K on the figure
-                ax.scatter(TS[0], TS[1], TS[2], facecolors='none', edgecolors='b')  # plot the point K on the figure
-                ax.scatter(T[0], T[1], T[2], facecolors='none', edgecolors='y')  # plot the point K on the figure
+                self.camera.add_graph_point(K, 'r')  # plot the point K on the figure
+                self.camera.add_graph_point(TS, 'b')  # plot the point K on the figure
+                self.camera.add_graph_point(T, 'y')  # plot the point K on the figure
 
                 # plot the line between K and TS
                 x, y, z = [K[0], TS[0]], [K[1], TS[1]], [K[2], TS[2]]
-                ax.plot(x, y, z, color='g')
+                self.camera.graph.plot(x, y, z, color='g')
 
                 # plot the line between K and T
                 x, y, z = [K[0], T[0]], [K[1], T[1]], [K[2], T[2]]
-                ax.plot(x, y, z, color='y')
+                self.camera.graph.plot(x, y, z, color='y')
 
                 t = height_of_lamp/100  # length of the line
                 line_direction = np.subtract(T, TS)
@@ -85,7 +87,7 @@ class LightSource:
                 y = [TS[1], T[1], T_TS_Line[1]]
                 z = [TS[2], T[2], T_TS_Line[2]]
                 # Plotting the line
-                plt.plot(x, y, z, 'r', linewidth=2)
+                self.camera.graph.plot(x, y, z, 'r', linewidth=2)
 
         # Reshape points
         TS_points, T_points = np.array(TS_points).reshape((-1, 3)), np.array(T_points).reshape((-1, 3))
@@ -93,8 +95,8 @@ class LightSource:
 
         if constants.LIGHT_CALIBRATE_GRAPHS:
             # Add the point to the graph
-            ax.scatter(intersection_point[0], intersection_point[1], intersection_point[2], facecolors='none', edgecolors='y')
-            plt.show()
+            self.camera.add_graph_point(intersection_point, color='y')
+            #plt.show()
 
         self.light_position = intersection_point
 
@@ -135,7 +137,7 @@ class LightSource:
                                               click_callback=lambda x, y: chosen_coordinates.append((x, y)),
                                               title="Select top point of the shadow")
             b, ts = chosen_coordinates[0], chosen_coordinates[1]
-            print(b, ts)
+            print(f"Chosen points: b={b}, ts={ts}")
             points.append((b, ts))
         return points
 

@@ -9,6 +9,7 @@ from mpl_toolkits.mplot3d.art3d import Poly3DCollection
 import constants
 import video_helper
 from pixel import Pixel
+from triangulation import Triangulation
 
 
 class ShadowEdgeDetection:
@@ -30,9 +31,8 @@ class ShadowEdgeDetection:
         :return:
         """
         self.x_right, self.x_left = int(fixed_points[0]), int(fixed_points[1])
-        if constants.SHADOW_POINTS_PICKLE:
-            with open(self.shadow_pickle_name, 'wb') as f1:
-                pickle.dump((self.x_right, self.x_left), f1)
+        with open(self.shadow_pickle_name, 'wb') as f1:
+            pickle.dump((self.x_right, self.x_left), f1)
         # print x_right and x_left:
         print(f"x_right: {self.x_right}, x_left: {self.x_left}")
 
@@ -119,15 +119,7 @@ class ShadowEdgeDetection:
         :return:
         """
 
-        plt.clf()
-
-        fig = plt.figure(figsize=(4, 4))
-        ax = fig.add_subplot(111, projection='3d')
-        ax.set_xlabel("X")
-        ax.set_ylabel("Y")
-        ax.set_zlabel("Z")
-        ax.set_zlim(0, 1000)
-
+        # self.camera.create_3d_graph()
         cord_1 = self.find_y_left_right(frame, is_right=True)
         cord_2 = self.find_y_left_right(frame, is_right=False)
         if cord_1 and cord_2:
@@ -161,15 +153,16 @@ class ShadowEdgeDetection:
             # 3. add polygon to the figure (current axes)
             plt.gca().add_collection3d(srf)
 
-            ax.scatter(B_t[0], B_t[1], B_t[2], facecolors='none', edgecolors='r')  # plot the point K on the figure
-            ax.scatter(A_t[0], A_t[1], A_t[2], facecolors='none', edgecolors='r')  # plot the point K on the figure
-            ax.scatter(S[0], S[1], S[2], facecolors='none', edgecolors='y')  # plot the point K on the figure
+            self.camera.graph.scatter(B_t[0], B_t[1], B_t[2], facecolors='none', edgecolors='r')  # plot the point K on the figure
+            self.camera.graph.scatter(A_t[0], A_t[1], A_t[2], facecolors='none', edgecolors='r')  # plot the point K on the figure
+            self.camera.graph.scatter(S[0], S[1], S[2], facecolors='none', edgecolors='y')  # plot the point K on the figure
 
-            #plt.show()
+            # plt.show()
 
         # if video_helper.imshow(frame, to_wait=True):
         #     return False
 
+        spatial_edge_pixels = []
         for pixel, pixel_data in self.pixels_intensities.copy().items():
             dI = self.get_pixel(frame, pixel[0], pixel[1]) - pixel_data.get_intensity_avg()
             if pixel_data.last_diff_intensity and \
@@ -184,12 +177,16 @@ class ShadowEdgeDetection:
                 del self.pixels_intensities[pixel]
                 # mark it in the image
                 self.set_pixel(frame, pixel[0], pixel[1], 0)
+                # add it to the list of edge-shadowed pixels
+                spatial_edge_pixels.append(pixel)
 
             pixel_data.last_diff_intensity = dI
 
+        self.triangulation(spatial_edge_pixels=spatial_edge_pixels)
+
         # self.show_shadow_pixels(frame)
 
-        if video_helper.imshow(frame, to_wait=True):
+        if spatial_edge_pixels and video_helper.imshow(frame, to_wait=True):
             return False
         return True
 
@@ -208,6 +205,36 @@ class ShadowEdgeDetection:
         video_helper.imshow(frame, to_wait=True)
 
     def load_frames(self):
-        return video_helper.generate_frames(glob.glob("./shadow_edge_detection/*.mp4")[0],
-                                            resize_factor=constants.SHADOW_RESIZE_FACTOR,
-                                            grayscale=True)
+        return video_helper.generate_frames(glob.glob("./shadow_edge_detection/*.mp4")[0], grayscale=True)
+
+    counter = 0
+    def triangulation(self, spatial_edge_pixels):
+        if not spatial_edge_pixels:
+            print("No spatial edge pixels")
+            return
+
+        #cam_center = -np.linalg.inv(np.asmatrix(self.camera.get_rotation_matrix()).H) @ np.asmatrix(self.camera.translation_vector.T).H
+        #cam_center = -(np.linalg.inv(self.camera.get_rotation_matrix()) @ self.camera.translation_vector)
+        #cam_center = -np.matrix(self.get_rotation_matrix()).T * np.matrix(self.translation_vector)
+
+        plt.savefig(f'graphs/{ShadowEdgeDetection.counter}.png')
+        plt.show()
+        ShadowEdgeDetection.counter += 1
+
+        for pixel in spatial_edge_pixels:
+            if not self.x_left <= pixel[0] <= self.x_right:
+                continue
+
+            P0 = self.camera.image_point_to_3d(pixel)
+            Oc = (self.camera.intrinsic_mat[0][2], self.camera.intrinsic_mat[1][2])
+
+            #print(cam_center)
+            #camCenter = -inv(camRot')*camTrans';
+
+
+            #graph.scatter(P0[0], P0[1], P0[2], facecolors='none', edgecolors='r')  # plot the point P0 on the figure
+
+        #plt.show()
+
+        print(spatial_edge_pixels)
+
