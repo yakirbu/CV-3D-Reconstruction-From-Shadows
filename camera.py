@@ -97,7 +97,6 @@ class Camera:
 
         return min_err_ind
 
-
     def calibrate(self, board_size: Tuple[int, int], is_video: bool, cube_mm_size: float):
         def start_calibration():
             return self.calibrate_helper(board_size, is_video, cube_mm_size)
@@ -117,7 +116,6 @@ class Camera:
                     set_calibration_parameters(pickle.load(f1))
             except (OSError, IOError):
                 set_calibration_parameters(start_calibration(), to_pickle=True)
-
 
     def calculate_camera_center(self):
         # Set camera center:
@@ -191,7 +189,18 @@ class Camera:
         self.graph = ax
 
     def add_graph_point(self, point_3d, color="y", full=False):
+        if self.graph is None:
+            self.create_3d_graph()
         if full:
             self.graph.scatter(point_3d[0], point_3d[1], point_3d[2], c=color)
         else:
             self.graph.scatter(point_3d[0], point_3d[1], point_3d[2], facecolors='none', edgecolors=color)
+
+    graph_num_counter = 0
+
+    def show_graph(self, save_fig=False, show_fig=False):
+        if save_fig:
+            plt.savefig(f'graphs/{Camera.graph_num_counter}.png')
+            Camera.graph_num_counter += 1
+        if show_fig:
+            plt.show()
