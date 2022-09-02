@@ -7,6 +7,8 @@ from matplotlib import pyplot as plt
 
 import constants
 
+img_saver_counter = {}
+
 
 def generate_frames(video_name: str, skip_frames: int = 4, grayscale=False) -> Generator[
     np.ndarray, None, None]:
@@ -56,6 +58,14 @@ def imshow(frame, to_wait):
         return False
     else:
         return cv2.waitKey(1) & 0xFF == ord('q')
+
+
+def save_image(frame, path):
+    if path not in img_saver_counter:
+        img_saver_counter[path] = 1
+    else:
+        img_saver_counter[path] += 1
+    cv2.imwrite(f"{path}/{img_saver_counter[path]}.jpg", frame)
 
 
 def show_pixel_selection(camera, frame: np.ndarray, click_callback, title, is_gray=False):

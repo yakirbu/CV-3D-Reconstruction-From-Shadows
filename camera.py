@@ -5,16 +5,20 @@ from typing import Tuple
 import numpy as np
 import cv2
 from matplotlib import pyplot as plt
+import pyqtgraph.opengl as gl
 
 import constants
 import video_helper
 
 
 class Camera:
-    def __init__(self):
+    def __init__(self, opengl_app, opengl_window):
         self.intrinsic_mat, self.distortion, self.rotation_vector, self.translation_vector = None, None, None, None
         self._camera_pickle_name = 'camera_calibration.pkl'
         self.graph = None
+        self.cam_center = None
+        self.opengl_window = opengl_window
+        self.opengl_app = opengl_app
 
     def undistort(self, img: np.ndarray):
         h, w = img.shape[:2]
@@ -23,13 +27,30 @@ class Camera:
         cv2.imshow('img', dst)
         cv2.waitKey(0)
 
-    def calibrate_helper(self, board_size: Tuple[int, int], is_video: bool, cube_mm_size: float):
+    def calibrate_helper(self, is_video: bool, cube_mm_size: float):
+
+        # mtx = np.array([[333.621302313315, 0.0, 238.867474639208],
+        #                 [0.0, 333.077725174641, 130.333413314213],
+        #                 [0.0, 0.0, 1.0]], dtype=np.float32)
+        # camRot = np.array([[-0.998537224721034,	0.0483721938962361,	-0.0241566078761216],
+        #                    [-0.0514145289771645, -0.711227171819756, 0.701079493549289],
+        #                    [0.0167319172981483,	0.701295972413172,	0.712673839859857]], dtype=np.float32)
+        # camTrans = np.array([126.913425760356, 2.78960484239353,	397.662733241543]).reshape(-1, 1)
+        # dist = None
+        # return mtx, dist, camRot, camTrans
+
+
+        cbrow = constants.CALIB_BOARD_SIZE[0]
+        cbcol = constants.CALIB_BOARD_SIZE[1]
+
         # termination criteria
         criteria = (cv2.TERM_CRITERIA_EPS + cv2.TERM_CRITERIA_MAX_ITER, cube_mm_size, 0.001)
 
         # prepare object points, like (0,0,0), (1,0,0), (2,0,0) ....,(6,5,0)
-        objp = np.zeros((board_size[0] * board_size[1], 3), np.float32)
-        objp[:, :2] = np.mgrid[0:board_size[0], 0:board_size[1]].T.reshape(-1, 2)
+        # objp = np.zeros((constants.CALIB_BOARD_SIZE[0] * constants.CALIB_BOARD_SIZE[1], 3), np.float32)
+        # objp[:, :2] = np.mgrid[0:constants.CALIB_BOARD_SIZE[0], 0:constants.CALIB_BOARD_SIZE[1]].T.reshape(-1, 2)
+        objp = np.zeros((cbrow * cbcol, 3), np.float32)
+        objp[:, :2] = np.mgrid[0:cbcol, 0:cbrow].T.reshape(-1, 2)
 
         # Arrays to store object points and image points from all the images.
         obj_points = []  # 3d point in real world space
@@ -41,29 +62,29 @@ class Camera:
         else:
             images = video_helper.get_images('./camera_calibration')
 
-        counter = 0
         for img in images:
-            cv2.imwrite(f'camera_calibration_images/{counter}.jpg', img)
-            counter += 1
+            video_helper.save_image(img, './camera_calibration_images')
 
             gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
 
             # Find the chess board corners
-            success, corners = cv2.findChessboardCorners(gray, (board_size[0], board_size[1]), None)
+            success, corners = cv2.findChessboardCorners(gray, (cbcol, cbrow), None)
 
             # If found, add object points, image points (after refining them)
             if success:
                 obj_points.append(objp)
-                corners2 = cv2.cornerSubPix(gray, corners, (11, 11), (-1, -1), criteria)
+                corners2 = cv2.cornerSubPix(gray, corners, (5, 5), (-1, -1), criteria)
                 img_points.append(corners)
 
                 # Draw and display the corners
-                cv2.drawChessboardCorners(img, (board_size[0], board_size[1]), corners2, success)
+                cv2.drawChessboardCorners(img, (constants.CALIB_BOARD_SIZE[0], constants.CALIB_BOARD_SIZE[1]), corners2, success)
                 cv2.imshow('img', img)
                 # if cv2.waitKey(1) & 0xFF == ord('q'):
                 #     break
 
                 # cv2.waitKey()
+
+        #print(obj_points)
 
         cv2.destroyAllWindows()
 
@@ -85,21 +106,23 @@ class Camera:
             if curr_error < min_err:
                 min_err = curr_error
                 min_err_ind = i
-            print(curr_error)
-        print("Total error: ", error / len(obj_points))
+            # print(curr_error)
+        print("Total calibration error: ", error / len(obj_points))
 
         # Change min_err_ind to -1 if you want to use the last calibration
         min_err_ind = -1
 
         self.create_3d_graph()
-        for p in obj_points[min_err_ind]:
-            self.add_graph_point(p, 'b')
+
+        if constants.PLOT_CHESSBOARD_POINTS:
+            for p in obj_points[min_err_ind]:
+                self.add_graph_point(p, 'b')
 
         return min_err_ind
 
-    def calibrate(self, board_size: Tuple[int, int], is_video: bool, cube_mm_size: float):
+    def calibrate(self, is_video: bool, cube_mm_size: float):
         def start_calibration():
-            return self.calibrate_helper(board_size, is_video, cube_mm_size)
+            return self.calibrate_helper(is_video, cube_mm_size)
 
         def set_calibration_parameters(params, to_pickle=False):
             self.intrinsic_mat, self.distortion, self.rotation_vector, self.translation_vector = params
@@ -119,14 +142,13 @@ class Camera:
 
     def calculate_camera_center(self):
         # Set camera center:
-        cam_center = -(np.linalg.inv(self.get_rotation_matrix()) @ self.translation_vector)
-        self.add_graph_point(cam_center, color='g')  # plot the camera center on the figure
+        self.cam_center = -(np.linalg.inv(np.asmatrix(self.get_rotation_matrix())) @ np.asmatrix(self.translation_vector))
+        if constants.PLOT_CAMERA_CENTER:
+            self.add_graph_point(self.cam_center, color='g')  # plot the camera center on the figure
 
     def get_rotation_matrix(self):
+        #return self.rotation_vector
         return cv2.Rodrigues(self.rotation_vector)[0]
-        # rotation_mat = np.zeros(shape=(3, 3))
-        # cv2.Rodrigues(self.rotation_vector, rotation_mat)
-        # return rotation_mat
 
     def image_point_to_3d(self, point_2d):
         # We assume that Z is 0, because our desk is at XY plane
@@ -152,7 +174,32 @@ class Camera:
         # Calculate 3d points:
         P = (s * mat_left_side) - mat_right_side
 
+        #test = self.point_2d_to_3d(point_2d, rotation_mat, intrinsic_matrix, translation_vector)
+
         return P.reshape(-1)
+
+
+    # calculate a scale factor and a 3d point with Z=0, from a given 2d point, rotation matrix, intrinsic_matrix, and a translation vector:
+        # calculate a scale factor and a 3d point with Z=0, from a given 2d point, rotation matrix, intrinsic_matrix, and a translation vector:
+    # def point_2d_to_3d(self, point_2d, rotation_matrix, intrinsic_matrix, translation_vector):
+    #     # calculate the scale factor:
+    #     scale_factor = np.dot(np.dot(np.linalg.inv(intrinsic_matrix), rotation_matrix), translation_vector
+    #                           ) / np.dot(np.dot(np.linalg.inv(intrinsic_matrix), rotation_matrix),
+    #                                      np.array([point_2d[0], point_2d[1], 1]))
+    #     # calculate the 3d point:
+    #     point_3d = np.dot(np.dot(np.linalg.inv(intrinsic_matrix), rotation_matrix),
+    #                       scale_factor * np.array([point_2d[0], point_2d[1], 1])) - translation_vector
+    #     return point_3d
+
+
+    # def calculate_scale_factor_and_3d_point(self, point_2d, rotation_matrix, translation_vector):
+    #     # convert the point to homogeneous coordinates
+    #     point_2d = np.array([point_2d[0], point_2d[1], 1], dtype=np.float32)
+    #     # calculate the scale factor
+    #     scale_factor = np.dot(rotation_matrix[2, :], translation_vector) / np.dot(rotation_matrix[2, :], point_2d)
+    #     # calculate the 3d point
+    #     point_3d = scale_factor * point_2d
+    #     return point_3d
 
     # def image_point_to_3d(self, point_2d):
     #     # We assume that Z is 0, because our desk is at XY plane
@@ -178,15 +225,18 @@ class Camera:
     #
     #     return P.reshape(-1)
 
+    def set_graph_properties(self):
+        self.graph.set_xlabel("X")
+        self.graph.set_ylabel("Y")
+        self.graph.set_zlabel("Z")
+        self.graph.set_zlim(0, 2)
+
     def create_3d_graph(self):
         plt.clf()
         fig = plt.figure(figsize=(4, 4))
         ax = fig.add_subplot(111, projection='3d')
-        ax.set_xlabel("X")
-        ax.set_ylabel("Y")
-        ax.set_zlabel("Z")
-        ax.set_zlim(0, 1000)
         self.graph = ax
+        self.set_graph_properties()
 
     def add_graph_point(self, point_3d, color="y", full=False):
         if self.graph is None:
@@ -196,6 +246,22 @@ class Camera:
         else:
             self.graph.scatter(point_3d[0], point_3d[1], point_3d[2], facecolors='none', edgecolors=color)
 
+        # opengl_color = color
+        # if isinstance(color, str):
+        #     if color == "y":
+        #         opengl_color = (239, 236, 0, 1)
+        #     elif color == "b":
+        #         opengl_color = (21, 82, 225, 1)
+        #     elif color == "g":
+        #         opengl_color = (23, 199, 0, 1)
+        #     elif color == "r":
+        #         opengl_color = (224, 20, 20, 1)
+        #     opengl_color = tuple(ti / 255 if i < 3 else 1 for i, ti in enumerate(opengl_color))
+        # else:
+        #     opengl_color = opengl_color[0]
+        # self.opengl_window.view.addItem(
+        #     gl.GLScatterPlotItem(pos=point_3d.reshape(-1), color=opengl_color, size=.5, pxMode=False))
+
     graph_num_counter = 0
 
     def show_graph(self, save_fig=False, show_fig=False):
@@ -203,4 +269,17 @@ class Camera:
             plt.savefig(f'graphs/{Camera.graph_num_counter}.png')
             Camera.graph_num_counter += 1
         if show_fig:
+            self.set_graph_properties()
             plt.show()
+
+    def show_opengl_graph(self):
+        self.opengl_window.show()
+        self.opengl_app.exec()
+
+    def save_graph(self, path):
+        with open(path, 'wb') as f:
+            pickle.dump(self.graph, f)
+
+    def load_graph(self, path):
+        with open(path, 'rb') as f:
+            self.graph = pickle.load(f)

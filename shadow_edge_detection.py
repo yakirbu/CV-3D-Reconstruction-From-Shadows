@@ -23,6 +23,7 @@ class ShadowEdgeDetection:
         self.x_right = 0
         self.y_left = 0
         self.y_right = 0
+        self.first_frame = None
 
     def set_fixed_points(self, fixed_points):
         """
@@ -57,6 +58,9 @@ class ShadowEdgeDetection:
     def detect(self):
         pixels_intensities = {}
 
+        # Get the first colored frame of the video
+        self.first_frame = self.get_colored_first_frame()
+
         for k, frame in enumerate(self.load_frames()):
             for y in range(frame.shape[0]):
                 for x in range(frame.shape[1]):
@@ -78,6 +82,8 @@ class ShadowEdgeDetection:
                             self.set_fixed_points(pickle.load(f1))
                     except (OSError, IOError):
                         self.set_fixed_points(self.select_fixed_points(frame))
+            # Save images
+            video_helper.save_image(frame, f"./shadow_images/3d_scan_loop")
 
         # print (pixels_intensities)
         for pixel, intensity in pixels_intensities.copy().items():
@@ -88,9 +94,18 @@ class ShadowEdgeDetection:
 
         self.pixels_intensities = pixels_intensities
 
+        break_occurred = False
         for frame in self.load_frames():
+            video_helper.save_image(self.get_filtered_image(frame), f"./shadow_images/filtered_scan")
             if not self.analyze_frame(frame):
+                break_occurred = True
                 break
+
+        # If everything went fine, save the graph:
+        if not break_occurred:
+            self.camera.save_graph(constants.PICKLE_3D_OBJECT_NAME)
+
+        self.camera.show_opengl_graph()
 
     def get_pixel(self, frame, x, y):
         return frame[y][x]
@@ -126,22 +141,22 @@ class ShadowEdgeDetection:
 
         B_t = self.camera.image_point_to_3d((self.x_left, self.y_left))
         A_t = self.camera.image_point_to_3d((self.x_right, self.y_right))
-        S = self.light.light_position
+        S = self.light.light_position.reshape(-1)
 
-        print(f"B_t: {B_t}, A_t: {A_t}, S: {S}")
+        # print(f"B_t: {B_t}, A_t: {A_t}, S: {S}")
 
-        self.camera.add_graph_point(point_3d=B_t, color='r', full=False)
-        self.camera.add_graph_point(point_3d=A_t, color='r', full=False)
-        self.camera.add_graph_point(point_3d=S, color='y', full=True)
+        # self.camera.add_graph_point(point_3d=B_t, color='r', full=False)
+        # self.camera.add_graph_point(point_3d=A_t, color='r', full=False)
+        # self.camera.add_graph_point(point_3d=S, color='y', full=True)
 
-        # 1. create vertices from points
-        verts = [list(zip([A_t[0], B_t[0], S[0]], [A_t[1], B_t[1], S[1]], [A_t[2], B_t[2], S[2]]))]
-        # 2. create 3d polygons and specify parameters
-        srf = Poly3DCollection(verts, alpha=.25, facecolor='#800000')
-        # 3. add polygon to the figure (current axes)
-        plt.gca().add_collection3d(srf)
+        # # 1. create vertices from points
+        # verts = [list(zip([A_t[0], B_t[0], S[0]], [A_t[1], B_t[1], S[1]], [A_t[2], B_t[2], S[2]]))]
+        # # 2. create 3d polygons and specify parameters
+        # srf = Poly3DCollection(verts, alpha=.25, facecolor='#800000')
+        # # 3. add polygon to the figure (current axes)
+        # plt.gca().add_collection3d(srf)
 
-        return A_t, B_t
+        return A_t.reshape(-1, 1), B_t.reshape(-1, 1)
 
     def analyze_frame(self, frame):
         """
@@ -174,13 +189,13 @@ class ShadowEdgeDetection:
 
         self.triangulation(spatial_edge_pixels=spatial_edge_pixels, P1=A_t, P2=B_t, S=self.light.light_position)
 
-        # self.show_shadow_pixels(frame)
+        # self.get_filtered_image(frame)
 
-        if spatial_edge_pixels and video_helper.imshow(frame, to_wait=True):
+        if spatial_edge_pixels and video_helper.imshow(frame, to_wait=False):
             return False
         return True
 
-    def show_shadow_pixels(self, frame):
+    def get_filtered_image(self, frame):
         """
         Show the pixels that are shadowed in the frame
         :param frame:
@@ -192,10 +207,13 @@ class ShadowEdgeDetection:
                 if (x, y) not in self.pixels_intensities:
                     self.set_pixel(frame, x, y, 0)
 
-        video_helper.imshow(frame, to_wait=True)
+        # video_helper.imshow(frame, to_wait=True)
+        return frame
+    def load_frames(self, grayscale=True):
+        return video_helper.generate_frames(glob.glob("./shadow_edge_detection/*.mp4")[0], grayscale=grayscale)
 
-    def load_frames(self):
-        return video_helper.generate_frames(glob.glob("./shadow_edge_detection/*.mp4")[0], grayscale=True)
+    def get_colored_first_frame(self):
+        return video_helper.get_frame_from_video(glob.glob("./shadow_edge_detection/*.mp4")[0], frame_number=0)
 
     counter = 0
 
@@ -205,16 +223,35 @@ class ShadowEdgeDetection:
             print("Invalid data (happens usually on the first frame)")
             return
 
-        print(P1.shape, P2.shape, S.shape)
+        C = self.camera.cam_center
 
-        self.camera.show_graph(save_fig=False, show_fig=False)
+        # stack P1, P2, S and C horizontally to create a matrix of 3x3
+        A = np.hstack((S, P1, P2, C))
+        A = np.vstack(([1, 1, 1, 1], A))
+
+        det_A = np.linalg.det(A)
 
         for pixel in spatial_edge_pixels:
             if not self.x_left <= pixel[0] <= self.x_right:
                 continue
 
-            P0 = self.camera.image_point_to_3d(pixel)
+            P0 = self.camera.image_point_to_3d(pixel).reshape(-1, 1)
 
-            # mat_top =
+            B = np.hstack((S, P1, P2, np.subtract(P0, C)))
+            B = np.vstack(([1, 1, 1, 0], B))
 
-        print(spatial_edge_pixels)
+            det_B = np.linalg.det(B)
+            t = -(det_A / det_B)
+
+            line_direction = np.subtract(P0, C)
+            P = C + (t * line_direction)
+
+            # Color the point P with its original color from the first frame
+            b, g, r = self.get_pixel(self.first_frame, pixel[0], pixel[1])
+            self.camera.add_graph_point(point_3d=P, color=[(r / 255, g / 255, b / 255, 1)], full=True)
+
+        self.camera.show_graph(save_fig=True, show_fig=False)
+
+    # # calculate a scale factor and a 3d point with Z=0, from a given 2d point, rotation matrix, intrinsic_matrix, and a translation vector:
+    # def calculate_3d_point(self, point_2d, rotation_matrix, intrinsic_matrix, translation_vector):
+    #

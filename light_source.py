@@ -57,7 +57,7 @@ class LightSource:
             K = self.camera.image_point_to_3d(b)
             TS = self.camera.image_point_to_3d(ts)
 
-            print(f"Calculating for points: b={b}, ts={ts}")
+            # print(f"Calculating for points: b={b}, ts={ts}")
 
             # get the top point of the pencil
             T = (K[0], K[1], K[2] + self.pencil_len_mm)
@@ -96,9 +96,9 @@ class LightSource:
         if constants.LIGHT_CALIBRATE_GRAPHS:
             # Add the point to the graph
             self.camera.add_graph_point(intersection_point, color='y')
-            #plt.show()
+            plt.show()
 
-        self.light_position = intersection_point
+        self.light_position = intersection_point.reshape(-1, 1)
 
     @staticmethod
     def find_closet_intersection_point(points_1, points_2):
@@ -122,11 +122,9 @@ class LightSource:
     def find_points(self):
         videos = glob.glob('light_calibration/*.mp4')
         points = []
-        count = 0
         for video_name in videos:
             frame = video_helper.get_frame_from_video(video_name=video_name, frame_number=0)
-            cv2.imwrite(f"./light_calibration_images/{count}.jpg", frame)
-            count += 1
+            video_helper.save_image(frame, './light_calibration_images')
             chosen_coordinates = []
             video_helper.show_pixel_selection(camera=self.camera,
                                               frame=frame,
