@@ -57,10 +57,10 @@ class LightSource:
             K = self.camera.image_point_to_3d(b)
             TS = self.camera.image_point_to_3d(ts)
 
-            print(f"Calculating for points: b={b}, ts={ts}")
+            # print(f"Calculating for points: b={b}, ts={ts}")
 
             # get the top point of the pencil
-            T = (K[0], K[1], K[2] + self.pencil_len_mm)
+            T = (K[0], K[1], K[2] - self.pencil_len_mm)
 
             T_points.append(T)
             TS_points.append(TS)
@@ -79,7 +79,7 @@ class LightSource:
                 x, y, z = [K[0], T[0]], [K[1], T[1]], [K[2], T[2]]
                 self.camera.graph.plot(x, y, z, color='y')
 
-                t = height_of_lamp/100  # length of the line
+                t = height_of_lamp/70  # length of the line
                 line_direction = np.subtract(T, TS)
                 T_TS_Line = TS + (t * line_direction)  # T-TS line
 
@@ -87,7 +87,7 @@ class LightSource:
                 y = [TS[1], T[1], T_TS_Line[1]]
                 z = [TS[2], T[2], T_TS_Line[2]]
                 # Plotting the line
-                self.camera.graph.plot(x, y, z, 'r', linewidth=2)
+                self.camera.graph.plot(x, y, z, 'r', linewidth=1)
 
         # Reshape points
         TS_points, T_points = np.array(TS_points).reshape((-1, 3)), np.array(T_points).reshape((-1, 3))
@@ -96,9 +96,9 @@ class LightSource:
         if constants.LIGHT_CALIBRATE_GRAPHS:
             # Add the point to the graph
             self.camera.add_graph_point(intersection_point, color='y')
-            #plt.show()
+            plt.show()
 
-        self.light_position = intersection_point
+        self.light_position = intersection_point.reshape(-1, 1)
 
     @staticmethod
     def find_closet_intersection_point(points_1, points_2):
@@ -122,20 +122,16 @@ class LightSource:
     def find_points(self):
         videos = glob.glob('light_calibration/*.mp4')
         points = []
-        count = 0
         for video_name in videos:
             frame = video_helper.get_frame_from_video(video_name=video_name, frame_number=0)
-            cv2.imwrite(f"./light_calibration_images/{count}.jpg", frame)
-            count += 1
+            video_helper.save_image(frame, './light_calibration_images')
             chosen_coordinates = []
-            video_helper.show_pixel_selection(camera=self.camera,
-                                              frame=frame,
+            video_helper.show_pixel_selection(frame=frame,
                                               click_callback=lambda x, y: chosen_coordinates.append((x, y)),
-                                              title="Select the bottom point of the pencil")
-            video_helper.show_pixel_selection(camera=self.camera,
-                                              frame=frame,
+                                              title=":טעה לש תיתחתה תדוקנ תא רחב")
+            video_helper.show_pixel_selection(frame=frame,
                                               click_callback=lambda x, y: chosen_coordinates.append((x, y)),
-                                              title="Select top point of the shadow")
+                                              title=":לצה לש הצקה תדוקנ תא רחב")
             b, ts = chosen_coordinates[0], chosen_coordinates[1]
             print(f"Chosen points: b={b}, ts={ts}")
             points.append((b, ts))
