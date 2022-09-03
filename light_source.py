@@ -60,7 +60,7 @@ class LightSource:
             # print(f"Calculating for points: b={b}, ts={ts}")
 
             # get the top point of the pencil
-            T = (K[0], K[1], K[2] + self.pencil_len_mm)
+            T = (K[0], K[1], K[2] - self.pencil_len_mm)
 
             T_points.append(T)
             TS_points.append(TS)

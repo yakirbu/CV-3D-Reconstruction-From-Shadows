@@ -63,8 +63,8 @@ def main():
     light_source = LightSource(camera=camera)
     light_source.calibrate(pencil_len_mm=constants.PENCIL_LENGTH_MM)
 
-    # print(f"camera-center: {camera.cam_center}")
-    # print(f"light-position: {light_source.light_position}")
+    print(f"camera-center: {camera.cam_center}")
+    print(f"light-position: {light_source.light_position}")
 
     if constants.LOAD_CALIBRATED_DATA:
         # with open('final_calibration.pkl', 'wb') as f:

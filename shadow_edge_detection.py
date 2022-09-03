@@ -10,7 +10,6 @@ import constants
 import utils
 import video_helper
 from pixel import Pixel
-from triangulation import Triangulation
 
 
 class ShadowEdgeDetection:
@@ -89,23 +88,183 @@ class ShadowEdgeDetection:
         for pixel, intensity in pixels_intensities.copy().items():
             if pixel[0] == self.x_right or pixel[0] == self.x_left:
                 continue
-            if intensity.max_intensity - intensity.min_intensity < constants.INTENSITY_TRESHOLD:
+            if intensity.max_intensity - intensity.min_intensity < constants.INTENSITY_THRESHOLD:
                 del pixels_intensities[pixel]
 
         self.pixels_intensities = pixels_intensities
 
+        spatial_edge_pixels_list = []
         break_occurred = False
         for frame in self.load_frames():
             video_helper.save_image(self.get_filtered_image(frame), f"./shadow_images/filtered_scan")
-            if not self.analyze_frame(frame):
+            spatial_edge = self.analyze_frame(frame)
+            if spatial_edge is None:
                 break_occurred = True
                 break
+            spatial_edge_pixels_list.append(spatial_edge)
+
+        self.triangulation2(spatial_edge_pixels_list)
 
         # If everything went fine, save the graph:
         if not break_occurred:
             self.camera.save_graph(constants.PICKLE_3D_OBJECT_NAME)
 
         self.camera.show_opengl_graph()
+
+    def analyze_frame(self, frame):
+        """
+        Analyze the frame and return the shadowed pixels
+        :param frame:
+        :return:
+        """
+
+        A_t, B_t = self.handle_fixed_points(frame=frame)
+
+        spatial_edge_pixels = []
+        for pixel, pixel_data in self.pixels_intensities.copy().items():
+            dI = self.get_pixel(frame, pixel[0], pixel[1]) - pixel_data.get_intensity_avg()
+            if pixel_data.last_diff_intensity and \
+                    (pixel_data.last_diff_intensity < 0 < dI or pixel_data.last_diff_intensity > 0 > dI):
+                # Zero crossing
+
+                # Ignore x_left and x_right pixels, since we handle them differently
+                if pixel[0] == self.x_right or pixel[0] == self.x_left:
+                    continue
+
+                # If the pixel is zero crossing, delete it from the dictionary
+                del self.pixels_intensities[pixel]
+                # mark it in the image
+                self.set_pixel(frame, pixel[0], pixel[1], 0)
+                # add it to the list of edge-shadowed pixels
+                spatial_edge_pixels.append(pixel)
+
+            pixel_data.last_diff_intensity = dI
+
+        # self.triangulation(spatial_edge_pixels=spatial_edge_pixels, P1=A_t, P2=B_t, S=self.light.light_position)
+
+        # self.get_filtered_image(frame)
+
+        if spatial_edge_pixels and video_helper.imshow(frame, to_wait=False):
+            return None
+        return spatial_edge_pixels, A_t, B_t
+
+    def triangulation(self, spatial_edge_pixels, P1, P2, S):
+        if not utils.is_valid(spatial_edge_pixels) or not utils.is_valid(P1) or not utils.is_valid(
+                P2) or not utils.is_valid(S):
+            print("Invalid data (happens usually on the first frame)")
+            return
+
+        C = self.camera.cam_center
+
+        # stack P1, P2, S and C horizontally to create a matrix of 3x3
+        A = np.hstack((S, P1, P2, C))
+        A = np.vstack(([1, 1, 1, 1], A))
+
+        det_A = np.linalg.det(A)
+
+        P_points = []
+
+        for pixel in spatial_edge_pixels:
+            if not self.x_left <= pixel[0] <= self.x_right:
+                continue
+
+            P0 = self.camera.image_point_to_3d(pixel).reshape(-1, 1)
+
+            B = np.hstack((S, P1, P2, np.subtract(P0, C)))
+            B = np.vstack(([1, 1, 1, 0], B))
+
+            det_B = np.linalg.det(B)
+            t = -(det_A / det_B)
+
+            line_direction = np.subtract(P0, C)
+            P = C + (t * line_direction)
+
+            P_points.append([pixel, P])
+
+            # if not (0 <= P[2] <= 1):
+            #     continue
+            #
+            # # Color the point P with its original color from the first frame
+            # b, g, r = self.get_pixel(self.first_frame, pixel[0], pixel[1])
+            # self.camera.add_graph_point(point_3d=P, color=[(r / 255, g / 255, b / 255, 1)], full=True)
+
+        P_points = np.array(P_points)
+
+        x_avg = np.mean(P_points[:, 1][:][0][0])
+        y_avg = np.mean(P_points[:, 1][:][0][1])
+        z_avg = np.mean(P_points[:, 1][:][0][2])
+        avg_threshold = 1.5
+        for p in P_points:
+            if abs(p[1][0] - x_avg) < avg_threshold and abs(p[1][1] - y_avg) < avg_threshold and abs(
+                    p[1][2] - z_avg) < avg_threshold:
+                # Color the point P with its original color from the first frame
+                b, g, r = self.get_pixel(self.first_frame, p[0][0], p[0][1])
+                self.camera.add_graph_point(point_3d=p[1], color=[(r / 255, g / 255, b / 255, 1)], full=True)
+
+        self.camera.show_graph(save_fig=True, show_fig=False)
+
+    def get_Ps(self, spatial_edge_pixels, P1, P2):
+
+        S, C = self.light.light_position, self.camera.cam_center
+
+        if not utils.is_valid(spatial_edge_pixels) or not utils.is_valid(P1) or not utils.is_valid(
+                P2) or not utils.is_valid(S):
+            print("Invalid data (happens usually on the first frame)")
+            return []
+
+        # stack P1, P2, S and C horizontally to create a matrix of 3x3
+        A = np.hstack((S, P1, P2, C))
+        A = np.vstack(([1, 1, 1, 1], A))
+
+        det_A = np.linalg.det(A)
+
+        P_points = []
+
+        for pixel in spatial_edge_pixels:
+            if not self.x_left <= pixel[0] <= self.x_right:
+                continue
+
+            P0 = self.camera.image_point_to_3d(pixel).reshape(-1, 1)
+
+            B = np.hstack((S, P1, P2, np.subtract(P0, C)))
+            B = np.vstack(([1, 1, 1, 0], B))
+
+            det_B = np.linalg.det(B)
+            t = -(det_A / det_B)
+
+            line_direction = np.subtract(P0, C)
+            P = C + (t * line_direction)
+
+            P_points.append([pixel, P])
+        return P_points
+
+    def triangulation2(self, spatial_edge_pixels_list):
+        P_s = np.asarray([p for edge in spatial_edge_pixels_list for p in self.get_Ps(edge[0], edge[1], edge[2])])
+
+        # from the tuple pixel, point in P_s, get the average of the x, y, z coordinates of all the points in the list
+        x_avg = np.mean([np.mean(p[1][0]) for p in P_s])
+        y_avg = np.mean([np.mean(p[1][1]) for p in P_s])
+        z_avg = np.mean([np.mean(p[1][2]) for p in P_s])
+
+        avg_threshold = 20
+        z_threshold = 1
+
+        counter = 1
+        for p in P_s:
+            if not utils.is_valid(p):
+                continue
+            x, y, z = p[1][0][0], p[1][1][0], p[1][2][0]
+            if abs(x - x_avg) < avg_threshold and abs(y - y_avg) < avg_threshold and abs(z - z_avg) < z_threshold:
+
+                # Color the point P with its original color from the first frame
+                b, g, r = self.get_pixel(self.first_frame, p[0][0], p[0][1])
+                color = (r / 255, g / 255, b / 255, 1)
+                self.camera.add_graph_point(point_3d=[x, y, z], color=[color], full=True)
+                if counter % 1000 == 0:
+                    # self.camera.add_graph_point(points_list=(x_list, y_list, z_list), color=colors, full=True)
+                    self.camera.show_graph(save_fig=True, show_fig=False)
+                counter += 1
+        self.camera.show_graph(save_fig=True, show_fig=False)
 
     def get_pixel(self, frame, x, y):
         return frame[y][x]
@@ -124,7 +283,7 @@ class ShadowEdgeDetection:
                 # zero crossing
                 p_data.zero_crossing_times += 1
                 if p_data.zero_crossing_times == 1 and (
-                        p_data.max_intensity - p_data.min_intensity) > constants.INTENSITY_TRESHOLD:
+                        p_data.max_intensity - p_data.min_intensity) > constants.INTENSITY_THRESHOLD:
                     self.set_pixel(frame, x, y, 255)
                     return x, y
 
@@ -158,43 +317,6 @@ class ShadowEdgeDetection:
 
         return A_t.reshape(-1, 1), B_t.reshape(-1, 1)
 
-    def analyze_frame(self, frame):
-        """
-        Analyze the frame and return the shadowed pixels
-        :param frame:
-        :return:
-        """
-
-        A_t, B_t = self.handle_fixed_points(frame=frame)
-
-        spatial_edge_pixels = []
-        for pixel, pixel_data in self.pixels_intensities.copy().items():
-            dI = self.get_pixel(frame, pixel[0], pixel[1]) - pixel_data.get_intensity_avg()
-            if pixel_data.last_diff_intensity and \
-                    (pixel_data.last_diff_intensity < 0 < dI or pixel_data.last_diff_intensity > 0 > dI):
-                # Zero crossing
-
-                # Ignore x_left and x_right pixels, since we handle them differently
-                if pixel[0] == self.x_right or pixel[0] == self.x_left:
-                    continue
-
-                # If the pixel is zero crossing, delete it from the dictionary
-                del self.pixels_intensities[pixel]
-                # mark it in the image
-                self.set_pixel(frame, pixel[0], pixel[1], 0)
-                # add it to the list of edge-shadowed pixels
-                spatial_edge_pixels.append(pixel)
-
-            pixel_data.last_diff_intensity = dI
-
-        self.triangulation(spatial_edge_pixels=spatial_edge_pixels, P1=A_t, P2=B_t, S=self.light.light_position)
-
-        # self.get_filtered_image(frame)
-
-        if spatial_edge_pixels and video_helper.imshow(frame, to_wait=False):
-            return False
-        return True
-
     def get_filtered_image(self, frame):
         """
         Show the pixels that are shadowed in the frame
@@ -209,49 +331,9 @@ class ShadowEdgeDetection:
 
         # video_helper.imshow(frame, to_wait=True)
         return frame
+
     def load_frames(self, grayscale=True):
         return video_helper.generate_frames(glob.glob("./shadow_edge_detection/*.mp4")[0], grayscale=grayscale)
 
     def get_colored_first_frame(self):
         return video_helper.get_frame_from_video(glob.glob("./shadow_edge_detection/*.mp4")[0], frame_number=0)
-
-    counter = 0
-
-    def triangulation(self, spatial_edge_pixels, P1, P2, S):
-        if not utils.is_valid(spatial_edge_pixels) or not utils.is_valid(P1) or not utils.is_valid(
-                P2) or not utils.is_valid(S):
-            print("Invalid data (happens usually on the first frame)")
-            return
-
-        C = self.camera.cam_center
-
-        # stack P1, P2, S and C horizontally to create a matrix of 3x3
-        A = np.hstack((S, P1, P2, C))
-        A = np.vstack(([1, 1, 1, 1], A))
-
-        det_A = np.linalg.det(A)
-
-        for pixel in spatial_edge_pixels:
-            if not self.x_left <= pixel[0] <= self.x_right:
-                continue
-
-            P0 = self.camera.image_point_to_3d(pixel).reshape(-1, 1)
-
-            B = np.hstack((S, P1, P2, np.subtract(P0, C)))
-            B = np.vstack(([1, 1, 1, 0], B))
-
-            det_B = np.linalg.det(B)
-            t = -(det_A / det_B)
-
-            line_direction = np.subtract(P0, C)
-            P = C + (t * line_direction)
-
-            # Color the point P with its original color from the first frame
-            b, g, r = self.get_pixel(self.first_frame, pixel[0], pixel[1])
-            self.camera.add_graph_point(point_3d=P, color=[(r / 255, g / 255, b / 255, 1)], full=True)
-
-        self.camera.show_graph(save_fig=True, show_fig=False)
-
-    # # calculate a scale factor and a 3d point with Z=0, from a given 2d point, rotation matrix, intrinsic_matrix, and a translation vector:
-    # def calculate_3d_point(self, point_2d, rotation_matrix, intrinsic_matrix, translation_vector):
-    #

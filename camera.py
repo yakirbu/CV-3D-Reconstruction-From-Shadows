@@ -28,18 +28,6 @@ class Camera:
         cv2.waitKey(0)
 
     def calibrate_helper(self, is_video: bool, cube_mm_size: float):
-
-        # mtx = np.array([[333.621302313315, 0.0, 238.867474639208],
-        #                 [0.0, 333.077725174641, 130.333413314213],
-        #                 [0.0, 0.0, 1.0]], dtype=np.float32)
-        # camRot = np.array([[-0.998537224721034,	0.0483721938962361,	-0.0241566078761216],
-        #                    [-0.0514145289771645, -0.711227171819756, 0.701079493549289],
-        #                    [0.0167319172981483,	0.701295972413172,	0.712673839859857]], dtype=np.float32)
-        # camTrans = np.array([126.913425760356, 2.78960484239353,	397.662733241543]).reshape(-1, 1)
-        # dist = None
-        # return mtx, dist, camRot, camTrans
-
-
         cbrow = constants.CALIB_BOARD_SIZE[0]
         cbcol = constants.CALIB_BOARD_SIZE[1]
 
@@ -84,10 +72,10 @@ class Camera:
 
                 # cv2.waitKey()
 
-        #print(obj_points)
-
         cv2.destroyAllWindows()
 
+        # # multiply each element of obj_points by cube_mm_size
+        # obj_points = [np.multiply(obj_points[i], cube_mm_size) for i in range(len(obj_points))]
         ret, mtx, dist, rvecs, tvecs = cv2.calibrateCamera(obj_points, img_points, gray.shape[::-1], None, None)
 
         min_err_ind = self.evaluate_calibration(obj_points, img_points, rvecs, tvecs, mtx, dist)
@@ -147,7 +135,7 @@ class Camera:
             self.add_graph_point(self.cam_center, color='g')  # plot the camera center on the figure
 
     def get_rotation_matrix(self):
-        #return self.rotation_vector
+        # return self.rotation_vector
         return cv2.Rodrigues(self.rotation_vector)[0]
 
     def image_point_to_3d(self, point_2d):
@@ -238,13 +226,16 @@ class Camera:
         self.graph = ax
         self.set_graph_properties()
 
-    def add_graph_point(self, point_3d, color="y", full=False):
+    def add_graph_point(self, point_3d=None, color="y", full=False, points_list=None):
         if self.graph is None:
             self.create_3d_graph()
-        if full:
+        if points_list is not None:
+            self.graph.scatter(points_list[0], points_list[1], points_list[2], c=color)
+        elif full:
             self.graph.scatter(point_3d[0], point_3d[1], point_3d[2], c=color)
         else:
             self.graph.scatter(point_3d[0], point_3d[1], point_3d[2], facecolors='none', edgecolors=color)
+
 
         # opengl_color = color
         # if isinstance(color, str):
