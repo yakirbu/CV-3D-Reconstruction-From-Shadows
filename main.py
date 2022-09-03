@@ -27,8 +27,6 @@ def main():
     print(f"camera-center: {camera.cam_center}")
     print(f"light-position: {light_source.light_position}")
 
-    camera.show_graph(show_fig=True)
-
     shadow_edge_detection = ShadowEdgeDetection(camera=camera, light=light_source)
     shadow_edge_detection.detect()
 
