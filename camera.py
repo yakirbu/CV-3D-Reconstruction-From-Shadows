@@ -257,7 +257,7 @@ class Camera:
 
     def show_graph(self, save_fig=False, show_fig=False):
         if save_fig:
-            plt.savefig(f'graphs/{Camera.graph_num_counter}.png')
+            plt.savefig(f'graphs/{Camera.graph_num_counter}.png', dpi=600)
             Camera.graph_num_counter += 1
         if show_fig:
             self.set_graph_properties()

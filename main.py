@@ -63,14 +63,14 @@ def main():
     light_source = LightSource(camera=camera)
     light_source.calibrate(pencil_len_mm=constants.PENCIL_LENGTH_MM)
 
-    print(f"camera-center: {camera.cam_center}")
-    print(f"light-position: {light_source.light_position}")
-
     if constants.LOAD_CALIBRATED_DATA:
         # with open('final_calibration.pkl', 'wb') as f:
         #     pickle.dump((np.array([0, 600, 289]).reshape(-1, 1), np.array([50, 720, 1280]).reshape(-1, 1)), f)
         with open('final_calibration.pkl', 'rb') as f:
             camera.cam_center, light_source.light_position = pickle.load(f)
+
+    print(f"camera-center: {camera.cam_center}")
+    print(f"light-position: {light_source.light_position}")
 
     shadow_edge_detection = ShadowEdgeDetection(camera=camera, light=light_source)
     shadow_edge_detection.detect()

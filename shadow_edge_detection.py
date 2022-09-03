@@ -103,7 +103,7 @@ class ShadowEdgeDetection:
                 break
             spatial_edge_pixels_list.append(spatial_edge)
 
-        self.triangulation2(spatial_edge_pixels_list)
+        self.triangulation(spatial_edge_pixels_list)
 
         # If everything went fine, save the graph:
         if not break_occurred:
@@ -148,60 +148,60 @@ class ShadowEdgeDetection:
             return None
         return spatial_edge_pixels, A_t, B_t
 
-    def triangulation(self, spatial_edge_pixels, P1, P2, S):
-        if not utils.is_valid(spatial_edge_pixels) or not utils.is_valid(P1) or not utils.is_valid(
-                P2) or not utils.is_valid(S):
-            print("Invalid data (happens usually on the first frame)")
-            return
-
-        C = self.camera.cam_center
-
-        # stack P1, P2, S and C horizontally to create a matrix of 3x3
-        A = np.hstack((S, P1, P2, C))
-        A = np.vstack(([1, 1, 1, 1], A))
-
-        det_A = np.linalg.det(A)
-
-        P_points = []
-
-        for pixel in spatial_edge_pixels:
-            if not self.x_left <= pixel[0] <= self.x_right:
-                continue
-
-            P0 = self.camera.image_point_to_3d(pixel).reshape(-1, 1)
-
-            B = np.hstack((S, P1, P2, np.subtract(P0, C)))
-            B = np.vstack(([1, 1, 1, 0], B))
-
-            det_B = np.linalg.det(B)
-            t = -(det_A / det_B)
-
-            line_direction = np.subtract(P0, C)
-            P = C + (t * line_direction)
-
-            P_points.append([pixel, P])
-
-            # if not (0 <= P[2] <= 1):
-            #     continue
-            #
-            # # Color the point P with its original color from the first frame
-            # b, g, r = self.get_pixel(self.first_frame, pixel[0], pixel[1])
-            # self.camera.add_graph_point(point_3d=P, color=[(r / 255, g / 255, b / 255, 1)], full=True)
-
-        P_points = np.array(P_points)
-
-        x_avg = np.mean(P_points[:, 1][:][0][0])
-        y_avg = np.mean(P_points[:, 1][:][0][1])
-        z_avg = np.mean(P_points[:, 1][:][0][2])
-        avg_threshold = 1.5
-        for p in P_points:
-            if abs(p[1][0] - x_avg) < avg_threshold and abs(p[1][1] - y_avg) < avg_threshold and abs(
-                    p[1][2] - z_avg) < avg_threshold:
-                # Color the point P with its original color from the first frame
-                b, g, r = self.get_pixel(self.first_frame, p[0][0], p[0][1])
-                self.camera.add_graph_point(point_3d=p[1], color=[(r / 255, g / 255, b / 255, 1)], full=True)
-
-        self.camera.show_graph(save_fig=True, show_fig=False)
+    # def triangulation(self, spatial_edge_pixels, P1, P2, S):
+    #     if not utils.is_valid(spatial_edge_pixels) or not utils.is_valid(P1) or not utils.is_valid(
+    #             P2) or not utils.is_valid(S):
+    #         print("Invalid data (happens usually on the first frame)")
+    #         return
+    #
+    #     C = self.camera.cam_center
+    #
+    #     # stack P1, P2, S and C horizontally to create a matrix of 3x3
+    #     A = np.hstack((S, P1, P2, C))
+    #     A = np.vstack(([1, 1, 1, 1], A))
+    #
+    #     det_A = np.linalg.det(A)
+    #
+    #     P_points = []
+    #
+    #     for pixel in spatial_edge_pixels:
+    #         if not self.x_left <= pixel[0] <= self.x_right:
+    #             continue
+    #
+    #         P0 = self.camera.image_point_to_3d(pixel).reshape(-1, 1)
+    #
+    #         B = np.hstack((S, P1, P2, np.subtract(P0, C)))
+    #         B = np.vstack(([1, 1, 1, 0], B))
+    #
+    #         det_B = np.linalg.det(B)
+    #         t = -(det_A / det_B)
+    #
+    #         line_direction = np.subtract(P0, C)
+    #         P = C + (t * line_direction)
+    #
+    #         P_points.append([pixel, P])
+    #
+    #         # if not (0 <= P[2] <= 1):
+    #         #     continue
+    #         #
+    #         # # Color the point P with its original color from the first frame
+    #         # b, g, r = self.get_pixel(self.first_frame, pixel[0], pixel[1])
+    #         # self.camera.add_graph_point(point_3d=P, color=[(r / 255, g / 255, b / 255, 1)], full=True)
+    #
+    #     P_points = np.array(P_points)
+    #
+    #     x_avg = np.mean(P_points[:, 1][:][0][0])
+    #     y_avg = np.mean(P_points[:, 1][:][0][1])
+    #     z_avg = np.mean(P_points[:, 1][:][0][2])
+    #     avg_threshold = 1.5
+    #     for p in P_points:
+    #         if abs(p[1][0] - x_avg) < avg_threshold and abs(p[1][1] - y_avg) < avg_threshold and abs(
+    #                 p[1][2] - z_avg) < avg_threshold:
+    #             # Color the point P with its original color from the first frame
+    #             b, g, r = self.get_pixel(self.first_frame, p[0][0], p[0][1])
+    #             self.camera.add_graph_point(point_3d=p[1], color=[(r / 255, g / 255, b / 255, 1)], full=True)
+    #
+    #     self.camera.show_graph(save_fig=True, show_fig=False)
 
     def get_Ps(self, spatial_edge_pixels, P1, P2):
 
@@ -238,7 +238,7 @@ class ShadowEdgeDetection:
             P_points.append([pixel, P])
         return P_points
 
-    def triangulation2(self, spatial_edge_pixels_list):
+    def triangulation(self, spatial_edge_pixels_list):
         P_s = np.asarray([p for edge in spatial_edge_pixels_list for p in self.get_Ps(edge[0], edge[1], edge[2])])
 
         # from the tuple pixel, point in P_s, get the average of the x, y, z coordinates of all the points in the list
