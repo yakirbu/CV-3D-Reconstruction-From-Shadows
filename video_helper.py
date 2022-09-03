@@ -68,7 +68,7 @@ def save_image(frame, path):
     cv2.imwrite(f"{path}/{img_saver_counter[path]}.jpg", frame)
 
 
-def show_pixel_selection(camera, frame: np.ndarray, click_callback, title, is_gray=False):
+def show_pixel_selection(frame: np.ndarray, click_callback, title, is_gray=False):
     """
     :param title: title of the window
     :param is_gray: if True, the frame is shown in a gray scale

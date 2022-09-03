@@ -44,12 +44,10 @@ class ShadowEdgeDetection:
         :return:
         """
         chosen_coordinates = []
-        video_helper.show_pixel_selection(camera=self.camera,
-                                          frame=frame,
+        video_helper.show_pixel_selection(frame=frame,
                                           click_callback=lambda x, y: chosen_coordinates.append((x, y)),
                                           title="Select x_right", is_gray=True)
-        video_helper.show_pixel_selection(camera=self.camera,
-                                          frame=frame,
+        video_helper.show_pixel_selection(frame=frame,
                                           click_callback=lambda x, y: chosen_coordinates.append((x, y)),
                                           title="Select x_left", is_gray=True)
         return chosen_coordinates[0][0], chosen_coordinates[1][0]
@@ -120,6 +118,9 @@ class ShadowEdgeDetection:
 
         A_t, B_t = self.handle_fixed_points(frame=frame)
 
+        # save frame:
+        video_helper.save_image(frame, f"./shadow_images/x_left_x_right")
+
         spatial_edge_pixels = []
         for pixel, pixel_data in self.pixels_intensities.copy().items():
             dI = self.get_pixel(frame, pixel[0], pixel[1]) - pixel_data.get_intensity_avg()
@@ -131,21 +132,35 @@ class ShadowEdgeDetection:
                 if pixel[0] == self.x_right or pixel[0] == self.x_left:
                     continue
 
-                # If the pixel is zero crossing, delete it from the dictionary
-                del self.pixels_intensities[pixel]
-                # mark it in the image
-                self.set_pixel(frame, pixel[0], pixel[1], 0)
+                # # If the pixel is zero crossing, delete it from the dictionary
+                # del self.pixels_intensities[pixel]
+                # # mark it in the image
+                # self.set_pixel(frame, pixel[0], pixel[1], 255)
                 # add it to the list of edge-shadowed pixels
                 spatial_edge_pixels.append(pixel)
 
             pixel_data.last_diff_intensity = dI
 
+        if utils.is_valid(spatial_edge_pixels):
+            y_avg = sum([pixel[1] for pixel in spatial_edge_pixels]) / len(spatial_edge_pixels)
+            y_threshold = 0.1 * frame.shape[0]
+            # remove pixels that are too far from the average y:
+            spatial_edge_pixels = [pixel for pixel in spatial_edge_pixels if abs(pixel[1] - y_avg) < y_threshold]
+            for pixel in spatial_edge_pixels:
+                # If the pixel is zero crossing, delete it from the dictionary
+                del self.pixels_intensities[pixel]
+                # mark it in the image
+                self.set_pixel(frame, pixel[0], pixel[1], 255)
+
+
         # self.triangulation(spatial_edge_pixels=spatial_edge_pixels, P1=A_t, P2=B_t, S=self.light.light_position)
 
         # self.get_filtered_image(frame)
 
-        if spatial_edge_pixels and video_helper.imshow(frame, to_wait=False):
-            return None
+        video_helper.save_image(frame, f"./shadow_images/spatial_edges")
+
+        # if video_helper.imshow(frame, to_wait=False):
+        #     return None
         return spatial_edge_pixels, A_t, B_t
 
     # def triangulation(self, spatial_edge_pixels, P1, P2, S):
@@ -254,7 +269,7 @@ class ShadowEdgeDetection:
             if not utils.is_valid(p):
                 continue
             x, y, z = p[1][0][0], p[1][1][0], p[1][2][0]
-            if abs(x - x_avg) < avg_threshold and abs(y - y_avg) < avg_threshold and abs(z - z_avg) < z_threshold:
+            if True: #abs(x - x_avg) < avg_threshold and abs(y - y_avg) < avg_threshold and abs(z - z_avg) < z_threshold:
 
                 # Color the point P with its original color from the first frame
                 b, g, r = self.get_pixel(self.first_frame, p[0][0], p[0][1])
@@ -284,6 +299,15 @@ class ShadowEdgeDetection:
                 p_data.zero_crossing_times += 1
                 if p_data.zero_crossing_times == 1 and (
                         p_data.max_intensity - p_data.min_intensity) > constants.INTENSITY_THRESHOLD:
+
+                    # for i in range(1, 3):
+                    #     self.set_pixel(frame, x + i, y, 255)
+                    #     self.set_pixel(frame, x - i, y, 255)
+                    #     self.set_pixel(frame, x + i, y + i, 255)
+                    #     self.set_pixel(frame, x - i, y - i, 255)
+                    #     self.set_pixel(frame, x, y + i, 255)
+                    #     self.set_pixel(frame, x, y - i, 255)
+                    # self.set_pixel(frame, x, y, 255)
                     self.set_pixel(frame, x, y, 255)
                     return x, y
 

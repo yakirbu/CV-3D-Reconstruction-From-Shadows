@@ -5,8 +5,7 @@ CAMERA_CALIBRATE_PICKLE = False
 # TODO: 3. Disable Z filtering (0-2)
 
 # Global
-IMG_RESIZE_FACTOR = 6
-LOAD_CALIBRATED_DATA = True
+IMG_RESIZE_FACTOR = 4
 
 # Light Calibration:
 PENCIL_LENGTH_MM = 127

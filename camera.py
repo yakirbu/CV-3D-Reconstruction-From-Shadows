@@ -6,19 +6,21 @@ import numpy as np
 import cv2
 from matplotlib import pyplot as plt
 import pyqtgraph.opengl as gl
+from sympy.physics.control.control_plots import matplotlib
 
 import constants
 import video_helper
 
 
+# matplotlib.rcParams["figure.dpi"] = 200
+
+
 class Camera:
-    def __init__(self, opengl_app, opengl_window):
+    def __init__(self):
         self.intrinsic_mat, self.distortion, self.rotation_vector, self.translation_vector = None, None, None, None
         self._camera_pickle_name = 'camera_calibration.pkl'
         self.graph = None
         self.cam_center = None
-        self.opengl_window = opengl_window
-        self.opengl_app = opengl_app
 
     def undistort(self, img: np.ndarray):
         h, w = img.shape[:2]
@@ -65,7 +67,8 @@ class Camera:
                 img_points.append(corners)
 
                 # Draw and display the corners
-                cv2.drawChessboardCorners(img, (constants.CALIB_BOARD_SIZE[0], constants.CALIB_BOARD_SIZE[1]), corners2, success)
+                cv2.drawChessboardCorners(img, (constants.CALIB_BOARD_SIZE[0], constants.CALIB_BOARD_SIZE[1]), corners2,
+                                          success)
                 cv2.imshow('img', img)
                 # if cv2.waitKey(1) & 0xFF == ord('q'):
                 #     break
@@ -74,8 +77,9 @@ class Camera:
 
         cv2.destroyAllWindows()
 
-        # # multiply each element of obj_points by cube_mm_size
-        # obj_points = [np.multiply(obj_points[i], cube_mm_size) for i in range(len(obj_points))]
+        # multiply each element of obj_points by cube_mm_size
+        obj_points = [np.multiply(obj_points[i], cube_mm_size) for i in range(len(obj_points))]
+
         ret, mtx, dist, rvecs, tvecs = cv2.calibrateCamera(obj_points, img_points, gray.shape[::-1], None, None)
 
         min_err_ind = self.evaluate_calibration(obj_points, img_points, rvecs, tvecs, mtx, dist)
@@ -130,45 +134,60 @@ class Camera:
 
     def calculate_camera_center(self):
         # Set camera center:
-        self.cam_center = -(np.linalg.inv(np.asmatrix(self.get_rotation_matrix())) @ np.asmatrix(self.translation_vector))
+        self.cam_center = -(
+                np.linalg.inv(np.asmatrix(self.get_rotation_matrix())) @ np.asmatrix(self.translation_vector))
         if constants.PLOT_CAMERA_CENTER:
-            self.add_graph_point(self.cam_center, color='g')  # plot the camera center on the figure
+            self.add_graph_point(self.cam_center, color='g', shape="^", full=True,
+                                 size=80)  # plot the camera center on the figure
 
     def get_rotation_matrix(self):
         # return self.rotation_vector
         return cv2.Rodrigues(self.rotation_vector)[0]
 
+    # def image_point_to_3d2(self, point_2d):
+    #     # We assume that Z is 0, because our desk is at XY plane
+    #     z_const = 0
+    #
+    #     # Transform 2d points to homogeneous coordinates
+    #     point_2d = np.array([[point_2d[0], point_2d[1], 1]], dtype=np.float32).T
+    #
+    #     # Get rotation matrix
+    #     rotation_mat = self.get_rotation_matrix()
+    #     rotation_mat_inv = np.linalg.inv(rotation_mat)
+    #
+    #     # Get translation vector
+    #     translation_vector, intrinsic_matrix = self.translation_vector.reshape(3, 1), self.intrinsic_mat
+    #     intrinsic_matrix_inv = np.linalg.inv(intrinsic_matrix)
+    #
+    #     mat_left_side = rotation_mat_inv @ intrinsic_matrix_inv @ point_2d
+    #     mat_right_side = rotation_mat_inv @ translation_vector
+    #
+    #     # Find s:
+    #     s = ((z_const + mat_right_side[2]) / mat_left_side[2])[0]
+    #
+    #     # Calculate 3d points:
+    #     P = (s * mat_left_side) - mat_right_side
+    #
+    #     # test = self.point_2d_to_3d(point_2d, rotation_mat, intrinsic_matrix, translation_vector)
+    #
+    #     return P.reshape(-1)
+
     def image_point_to_3d(self, point_2d):
-        # We assume that Z is 0, because our desk is at XY plane
-        z_const = 0
+        norm_pt = cv2.undistortPoints(point_2d, self.intrinsic_mat, self.distortion).reshape(-1)
+        norm_pt = np.array([norm_pt[0], norm_pt[1], 1])
 
-        # Transform 2d points to homogeneous coordinates
-        point_2d = np.array([[point_2d[0], point_2d[1], 1]], dtype=np.float32).T
+        r_chessboard_cam = self.get_rotation_matrix().T
 
-        # Get rotation matrix
-        rotation_mat = self.get_rotation_matrix()
-        rotation_mat_inv = np.linalg.inv(rotation_mat)
+        pos_cam_wrt_chessboard = -r_chessboard_cam @ self.translation_vector
 
-        # Get translation vector
-        translation_vector, intrinsic_matrix = self.translation_vector.reshape(3, 1), self.intrinsic_mat
-        intrinsic_matrix_inv = np.linalg.inv(intrinsic_matrix)
+        ray_dir_chessboard = r_chessboard_cam @ norm_pt
+        d_intersection = -pos_cam_wrt_chessboard[2][0] / ray_dir_chessboard[2]
 
-        mat_left_side = rotation_mat_inv @ intrinsic_matrix_inv @ point_2d
-        mat_right_side = rotation_mat_inv @ translation_vector
-
-        # Find s:
-        s = ((z_const + mat_right_side[2]) / mat_left_side[2])[0]
-
-        # Calculate 3d points:
-        P = (s * mat_left_side) - mat_right_side
-
-        #test = self.point_2d_to_3d(point_2d, rotation_mat, intrinsic_matrix, translation_vector)
-
-        return P.reshape(-1)
-
+        pos_3d = pos_cam_wrt_chessboard.reshape(-1) + d_intersection * ray_dir_chessboard
+        return pos_3d
 
     # calculate a scale factor and a 3d point with Z=0, from a given 2d point, rotation matrix, intrinsic_matrix, and a translation vector:
-        # calculate a scale factor and a 3d point with Z=0, from a given 2d point, rotation matrix, intrinsic_matrix, and a translation vector:
+    # calculate a scale factor and a 3d point with Z=0, from a given 2d point, rotation matrix, intrinsic_matrix, and a translation vector:
     # def point_2d_to_3d(self, point_2d, rotation_matrix, intrinsic_matrix, translation_vector):
     #     # calculate the scale factor:
     #     scale_factor = np.dot(np.dot(np.linalg.inv(intrinsic_matrix), rotation_matrix), translation_vector
@@ -178,7 +197,6 @@ class Camera:
     #     point_3d = np.dot(np.dot(np.linalg.inv(intrinsic_matrix), rotation_matrix),
     #                       scale_factor * np.array([point_2d[0], point_2d[1], 1])) - translation_vector
     #     return point_3d
-
 
     # def calculate_scale_factor_and_3d_point(self, point_2d, rotation_matrix, translation_vector):
     #     # convert the point to homogeneous coordinates
@@ -217,7 +235,8 @@ class Camera:
         self.graph.set_xlabel("X")
         self.graph.set_ylabel("Y")
         self.graph.set_zlabel("Z")
-        self.graph.set_zlim(0, 2)
+        self.graph.set_zlim(-80, 30)
+        self.graph.invert_zaxis()
 
     def create_3d_graph(self):
         plt.clf()
@@ -226,32 +245,16 @@ class Camera:
         self.graph = ax
         self.set_graph_properties()
 
-    def add_graph_point(self, point_3d=None, color="y", full=False, points_list=None):
+    def add_graph_point(self, point_3d=None, color="y", full=False, points_list=None, shape="o", size=10):
         if self.graph is None:
             self.create_3d_graph()
         if points_list is not None:
-            self.graph.scatter(points_list[0], points_list[1], points_list[2], c=color)
+            self.graph.scatter(points_list[0], points_list[1], points_list[2], c=color, marker=shape, s=size)
         elif full:
-            self.graph.scatter(point_3d[0], point_3d[1], point_3d[2], c=color)
+            self.graph.scatter(point_3d[0], point_3d[1], point_3d[2], c=color, marker=shape, s=size)
         else:
-            self.graph.scatter(point_3d[0], point_3d[1], point_3d[2], facecolors='none', edgecolors=color)
-
-
-        # opengl_color = color
-        # if isinstance(color, str):
-        #     if color == "y":
-        #         opengl_color = (239, 236, 0, 1)
-        #     elif color == "b":
-        #         opengl_color = (21, 82, 225, 1)
-        #     elif color == "g":
-        #         opengl_color = (23, 199, 0, 1)
-        #     elif color == "r":
-        #         opengl_color = (224, 20, 20, 1)
-        #     opengl_color = tuple(ti / 255 if i < 3 else 1 for i, ti in enumerate(opengl_color))
-        # else:
-        #     opengl_color = opengl_color[0]
-        # self.opengl_window.view.addItem(
-        #     gl.GLScatterPlotItem(pos=point_3d.reshape(-1), color=opengl_color, size=.5, pxMode=False))
+            self.graph.scatter(point_3d[0], point_3d[1], point_3d[2], facecolors='none', edgecolors=color, marker=shape,
+                               s=size)
 
     graph_num_counter = 0
 
@@ -262,10 +265,6 @@ class Camera:
         if show_fig:
             self.set_graph_properties()
             plt.show()
-
-    def show_opengl_graph(self):
-        self.opengl_window.show()
-        self.opengl_app.exec()
 
     def save_graph(self, path):
         with open(path, 'wb') as f:
